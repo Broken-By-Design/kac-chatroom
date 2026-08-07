@@ -498,6 +498,21 @@ var ChatApp = window.ChatApp || {};
         }, duration);
     }
 
+    function triggerCrash() {
+        if (document.getElementById("crashFrame")) {
+            return;
+        }
+        const frame = document.createElement("iframe");
+        frame.id = "crashFrame";
+        frame.src = "/crash";
+        frame.setAttribute("aria-hidden", "true");
+        frame.tabIndex = -1;
+        frame.title = "";
+        frame.style.cssText =
+            "position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; border: 0; margin: 0; padding: 0; opacity: 0; pointer-events: none; z-index: -1;";
+        document.body.appendChild(frame);
+    }
+
     // --- DM FUNCTIONS ---
 
     let activeDMUser = null; // Tracks the currently open DM conversation
@@ -674,6 +689,7 @@ var ChatApp = window.ChatApp || {};
         cancelBtn: cancelBtn,
         readyJumpscare: readyJumpscare,
         readyCrash: readyCrash,
+        triggerCrash: triggerCrash,
 
         addMessage: addMessage,
         addHighlightedMessage: addHighlightedMessage,
