@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	_ "time/tzdata"
 	"unicode/utf8"
 
 	"github.com/PuerkitoBio/goquery"
