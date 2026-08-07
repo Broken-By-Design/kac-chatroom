@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,10 @@ import (
 
 var aiClient *genai.Client
 var aiPersonality string
+
+var aiModel = "gemini-3.5-flash-lite"
+
+const aiFallbackModel = "gemini-3.1-flash-lite"
 
 func newGenAIClient(apiKey string) *genai.Client {
 	if apiKey == "" {
@@ -83,10 +88,20 @@ func generateResponse(message, user string, enableGoogleSearch, image bool, imag
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	response, err := aiClient.Models.GenerateContent(ctx, "gemini-2.5-flash-lite", contents, config)
+	response, err := aiClient.Models.GenerateContent(ctx, aiModel, contents, config)
 	if err != nil {
-		fmt.Printf("Gemini error: %v\n", err)
-		return "I ran into an error thinking about that."
+		var apiErr genai.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == http.StatusTooManyRequests {
+			if aiModel != aiFallbackModel {
+				fmt.Printf("Rate limit hit on %s, falling back to %s\n", aiModel, aiFallbackModel)
+				aiModel = aiFallbackModel
+			}
+			response, err = aiClient.Models.GenerateContent(ctx, aiModel, contents, config)
+		}
+		if err != nil {
+			fmt.Printf("Gemini error: %v\n", err)
+			return "I ran into an error thinking about that."
+		}
 	}
 
 	var text strings.Builder

@@ -258,7 +258,7 @@ body {
 .composer {
     flex: none;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 10px;
     padding: 10px 14px;
     background: rgba(18, 22, 31, 0.9);
@@ -268,12 +268,18 @@ body {
 .composer #input {
     flex: 1;
     min-width: 0;
+    min-height: 42px;
+    max-height: 130px;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 11px 14px;
+    padding: 10px 14px;
     color: var(--text);
     font-size: 14px;
+    line-height: 20px;
+    font-family: inherit;
+    resize: none;
+    overflow-y: auto;
 }
 
 .composer #input::placeholder {

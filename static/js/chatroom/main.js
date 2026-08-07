@@ -214,16 +214,30 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
             }
             ui.input.value = "";
+            resizeInput();
         }
     });
 
     // Handle typing indicator logic
+    function resizeInput() {
+        ui.input.style.height = "auto";
+        ui.input.style.height = ui.input.scrollHeight + "px";
+    }
+
+    ui.input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            ui.form.requestSubmit();
+        }
+    });
+
     ui.input.addEventListener("input", () => {
         if (!typing) {
             typing = true;
             socket.emit("typing", {});
         }
         lastTypingTime = Date.now();
+        resizeInput();
 
         setTimeout(() => {
             const timeDiff = Date.now() - lastTypingTime;
