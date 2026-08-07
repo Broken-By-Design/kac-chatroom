@@ -1,0 +1,17 @@
+.env
+chatlogs/*
+.venv/
+**__pycache__/
+
+
+# backups
+*.bak
+
+GEMINI.md
+
+subtitles/
+
+*.dbm
+
+# binaries
+chatroom

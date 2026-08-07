@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Video</title>
+    <script src="{{ url_for('static', filename='js/global/cloaker.js') }}" defer></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: whitesmoke;
+            background: #0c0c0c;
+            min-height: 100vh;
+        }
+        .player {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+        .back {
+            display: inline-block;
+            margin-bottom: 1rem;
+            color: #ff9999;
+            text-decoration: none;
+        }
+        .back:hover {
+            text-decoration: underline;
+        }
+        video {
+            width: 100%;
+            max-height: 80vh;
+            background: #000;
+            border-radius: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="player">
+        <a class="back" href="/movies">&larr; Back to Movies</a>
+        <video controls autoplay src="{{ .movie_url }}"></video>
+    </div>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Study Room</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                margin: 0;
+                background-color: #1a1a1a;
+                color: white;
+            }
+
+            .lounge-container {
+                display: flex;
+                height: 100vh;
+            }
+            #main-content {
+                flex-grow: 1;
+                display: flex;
+                flex-direction: column;
+                padding: 15px;
+            }
+            #video-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                grid-auto-rows: minmax(200px, auto);
+                gap: 15px;
+                flex-grow: 1;
+            }
+            .video-wrapper {
+                position: relative;
+                background-color: #000;
+                border-radius: 8px;
+                overflow: hidden;
+                aspect-ratio: 16 / 9;
+            }
+            .video-wrapper video {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+            .video-wrapper .nickname {
+                position: absolute;
+                bottom: 8px;
+                left: 8px;
+                background-color: rgba(0, 0, 0, 0.6);
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            .video-wrapper.screen-sharing {
+                grid-column: span 2;
+                grid-row: span 2;
+            }
+            #controls {
+                padding-bottom: 15px;
+                text-align: center;
+            }
+            #controls button {
+                padding: 10px 20px;
+                font-size: 16px;
+                margin: 0 10px;
+                cursor: pointer;
+            }
+            #chat-panel {
+                width: 350px;
+                min-width: 300px;
+                height: 100%;
+                border-left: 2px solid #333;
+            }
+            #chat-panel iframe {
+                width: 100%;
+                height: 100%;
+                border: none;
+            }
+
+        </style>
+    </head>
+    <body>
+        <div class="lounge-container">
+            <div id="main-content">
+                <div id="controls">
+                    <button id="toggle-mic">Mute Mic</button>
+                    <button id="toggle-cam">Turn Off Cam</button>
+                    <button id="toggle-screen">Share Screen</button>
+                </div>
+                <div id="video-grid">
+                    <!-- Local video will be added here -->
+                </div>
+            </div>
+            <div id="chat-panel">
+                <iframe src="{{ url_for('index') }}"></iframe>
+            </div>
+        </div>
+
+        <!-- This hidden div passes the nickname from Flask to JavaScript -->
+        <div id="user-nickname" data-nickname="{{ nickname }}"></div>
+        <script
+            src="https://cdn.socket.io/4.8.1/socket.io.min.js"
+            integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+"
+            crossorigin="anonymous"
+        ></script>
+        <script src="{{ url_for('static', filename='js/video/video-chat.js') }}"></script>
+    </body>
+</html>

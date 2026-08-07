@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Materials - Student Access | OpenScholar Texts</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/academic.css') }}">
+    <script src="{{ url_for('static', filename='js/global/cloaker.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/login.js') }}" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">OpenScholar Texts <span>| Course Reading</span></div>
+        <nav class="links">
+            <a href="#">Subjects</a>
+            <a href="#">My Library</a>
+            <a href="#">Notes</a>
+            <a href="#">Account</a>
+        </nav>
+    </header>
+
+    <div class="crumbs">
+        <a href="#">Home</a> &gt; <a href="#">Course Materials</a> &gt; Student Access
+    </div>
+
+    <main class="page">
+        <section class="card">
+            <h1>Course Materials Access</h1>
+            <p class="note">Enter the access code provided by your instructor to open the assigned readings for this course.</p>
+            <form action="/login" method="POST">
+                <input type="password" name="password" placeholder="Access code" required>
+                <button type="submit">Continue</button>
+            </form>
+            <div class="error">{{ error }}</div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        OpenScholar Texts | U.S. History, Volume 2 | Chapter 14: The Rise of Industrial America
+    </footer>
+</body>
+</html>

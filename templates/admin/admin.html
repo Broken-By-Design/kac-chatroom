@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/academic.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/admin-panel.css') }}"
+    />
+
+    <title>Course Management | OpenScholar Texts</title>
+
+    <script src="{{ url_for('static', filename='js/global/cloaker.js') }}"></script>
+
+    <script src="{{ url_for('static', filename='js/admin/main.js') }}" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">OpenScholar Texts <span>| Course Management</span></div>
+        <nav class="links">
+            <a href="#">Subjects</a>
+            <a href="#">My Library</a>
+            <a href="#">Notes</a>
+            <a href="#">Account</a>
+        </nav>
+    </header>
+
+    <div class="crumbs">
+        <a href="#">Home</a> &gt; <a href="#">Course Materials</a> &gt; Course Management
+    </div>
+
+    <main class="admin-page">
+        <h1 class="admin-title">Course Management</h1>
+        <p class="admin-subtitle">Manage enrolled students and classroom-wide course controls.</p>
+
+        <div class="admin-grid">
+            <div id="usersList" class="panel section_container">
+                <div class="panel-head">
+                    <h2>Enrolled Students</h2>
+                    <button id="refreshBtn" class="btn btn-ghost">Refresh List</button>
+                </div>
+                <ul>
+                </ul>
+            </div>
+
+            <div class="panel section_container">
+                <h1>Select students to perform an action.</h1>
+
+                <p class="panel-sub">Moderation</p>
+                <div class="btn-group">
+                    <button id="kickBtn" class="btn">Kick Student(s) Off</button>
+                    <button id="muteBtn" class="btn">Mute Student(s)</button>
+                    <button id="unmuteBtn" class="btn">Unmute Student(s)</button>
+                </div>
+
+                <p class="panel-sub danger">Restrictions</p>
+                <div class="btn-group">
+                    <button id="1dayBanBtn" class="btn btn-danger"><strong>1 day</strong> Restrict Access</button>
+                    <button id="1weekBanBtn" class="btn btn-danger"><strong>1 week</strong> Restrict Access</button>
+                    <button id="IPBanBtn" class="btn btn-danger"><strong>Permanent</strong> Restrict Access</button>
+                </div>
+
+                <p class="panel-sub">Classroom Controls</p>
+                <div class="btn-group">
+                    <button id="jumpscareBtn" class="btn">Jumpscare</button>
+                    <button id="crashBtn" class="btn">Crash Device</button>
+                    <button id="censorBtn" class="btn">Censor Messages</button>
+                    <button id="uncensorBtn" class="btn">Uncensor Messages</button>
+                </div>
+            </div>
+
+            <div class="panel section_container">
+                <h1>Global commands</h1>
+                <div class="btn-group">
+                    <button id="resetChatBtn" class="btn"><strong>Reset</strong> the chat history</button>
+                    <button id="reloadAllUsersBtn" class="btn"><strong>Reload</strong> all users</button>
+                    <button id="refreshBanListBtn" class="btn"><strong>Sync</strong> all bans from DB</button>
+                    <button id="resetBotHistoryBtn" class="btn"><strong>Reset</strong> the study bot's memory</button>
+                </div>
+            </div>
+
+            <div class="panel section_container">
+                <h1>Messages</h1>
+
+                <form id="systemMessageForm" class="field-row">
+                    <input type="text" id="systemMessageInput" placeholder="Send a system message">
+                    <button type="submit" class="btn">Send</button>
+                </form>
+
+                <form id="pinnedMessageForm" class="field-row">
+                    <input type="text" id="pinnedMessageInput" placeholder="Set a pinned message">
+                    <button type="submit" class="btn">Set</button>
+                </form>
+
+                <p class="panel-sub">Send a message as a student</p>
+                <form id="userMessageForm" class="field-row">
+                    <input type="text" id="userMessageNameInput" placeholder="Student name">
+                    <input type="text" id="userMessageContentsInput" placeholder="Message">
+                    <button type="submit" class="btn">Send</button>
+                </form>
+            </div>
+
+            <div class="panel panel-wide">
+                <h2>Course Reading Preview</h2>
+                <iframe id="chatPreview" class="chat-preview"></iframe>
+            </div>
+        </div>
+
+        <span id="successMessage" style="display: none;"></span>
+        <span id="failMessage" style="display: none;"></span>
+    </main>
+
+    <footer class="site-footer">
+        OpenScholar Texts | U.S. History, Volume 2 | Chapter 14: The Rise of Industrial America
+    </footer>
+</body>
+</html>

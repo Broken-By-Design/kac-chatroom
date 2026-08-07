@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Simulated Jackpot Machine</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@700&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            /* ENHANCEMENT: Added a more modern, energetic font for UI elements */
+            body {
+                font-family: "Roboto", sans-serif;
+                background-color: #111827;
+                color: #f3f4f6;
+                overflow-x: hidden; /* Prevent horizontal scroll from animations */
+            }
+            .font-orbitron {
+                font-family: "Orbitron", sans-serif;
+            }
+            .slot-display {
+                background: #000;
+                border: 4px solid #4f46e5;
+                box-shadow: 0 0 20px #4f46e5, inset 0 0 15px #312e81;
+                text-shadow: 0 0 10px #818cf8;
+            }
+            .slot-digit {
+                color: #6ee7b7;
+                transition: transform 0.2s ease-out; /* ENHANCEMENT: Animation for when numbers land */
+            }
+            /* ENHANCEMENT: Pop effect for when a digit lands */
+            .digit-land {
+                transform: scale(1.2);
+            }
+            .btn {
+                transition: all 0.2s ease-in-out;
+                text-shadow: 0 0 5px rgba(0, 0, 0, 0.4);
+                &:disabled {
+                    background-color: #4b5563 !important;
+                    border-bottom-color: #1f2937 !important;
+                    cursor: not-allowed;
+                    box-shadow: none !important;
+                    opacity: 0.6;
+                }
+            }
+            .btn-spin {
+                background-color: #16a34a;
+                border-bottom: 4px solid #14532d;
+                box-shadow: 0 0 20px #22c55e;
+                &:hover:not(:disabled) {
+                    background-color: #22c55e;
+                }
+                &:active:not(:disabled) {
+                    transform: translateY(2px);
+                    border-bottom-width: 2px;
+                }
+            }
+            .btn-bet {
+                background-color: #4f46e5;
+                border-bottom: 4px solid #312e81;
+                &:hover:not(:disabled) {
+                    background-color: #6366f1;
+                }
+                &:active:not(:disabled) {
+                    transform: translateY(2px);
+                    border-bottom-width: 2px;
+                }
+            }
+            .btn-all-in {
+                background-color: #d97706;
+                border-bottom: 4px solid #92400e;
+                box-shadow: 0 0 20px #f59e0b;
+                &:hover:not(:disabled) {
+                    background-color: #f59e0b;
+                }
+                &:active:not(:disabled) {
+                    transform: translateY(2px);
+                    border-bottom-width: 2px;
+                }
+            }
+            .btn-reset {
+                background-color: #dc2626;
+                border-bottom: 4px solid #7f1d1d;
+                &:hover:not(:disabled) {
+                    background-color: #ef4444;
+                }
+                &:active:not(:disabled) {
+                    transform: translateY(2px);
+                    border-bottom-width: 2px;
+                }
+            }
+            /* ENHANCEMENT: Added dedicated autoplay button styling */
+            .btn-auto {
+                background-color: #6d28d9;
+                border-bottom: 4px solid #4c1d95;
+                &:hover:not(:disabled) {
+                    background-color: #8b5cf6;
+                }
+                &:active:not(:disabled) {
+                    transform: translateY(2px);
+                    border-bottom-width: 2px;
+                }
+            }
+            .btn-auto.active {
+                background-color: #a78bfa;
+                box-shadow: 0 0 20px #a78bfa;
+            }
+
+            .win-jackpot {
+                animation: jackpot-glow 0.5s infinite alternate;
+            }
+            .win-major {
+                animation: major-glow 0.7s infinite alternate;
+            }
+            .win-minor {
+                animation: minor-glow 1s infinite alternate;
+            }
+            .win-micro {
+                animation: micro-glow 1s infinite alternate;
+            } /* ENHANCEMENT: Glow for small wins */
+
+            @keyframes jackpot-glow {
+                from {
+                    box-shadow: 0 0 30px #facc15, inset 0 0 20px #eab308;
+                    border-color: #facc15;
+                }
+                to {
+                    box-shadow: 0 0 50px #fde047, inset 0 0 35px #facc15;
+                    border-color: #fde047;
+                }
+            }
+            @keyframes major-glow {
+                from {
+                    box-shadow: 0 0 20px #22c55e, inset 0 0 15px #16a34a;
+                    border-color: #22c55e;
+                }
+                to {
+                    box-shadow: 0 0 30px #4ade80, inset 0 0 20px #22c55e;
+                    border-color: #4ade80;
+                }
+            }
+            @keyframes minor-glow {
+                from {
+                    box-shadow: 0 0 15px #3b82f6, inset 0 0 10px #2563eb;
+                    border-color: #3b82f6;
+                }
+                to {
+                    box-shadow: 0 0 25px #60a5fa, inset 0 0 15px #3b82f6;
+                    border-color: #60a5fa;
+                }
+            }
+            @keyframes micro-glow {
+                /* ENHANCEMENT: Subtle glow for the smallest wins */
+                from {
+                    box-shadow: 0 0 10px #a855f7, inset 0 0 8px #7e22ce;
+                    border-color: #a855f7;
+                }
+                to {
+                    box-shadow: 0 0 20px #c084fc, inset 0 0 12px #9333ea;
+                    border-color: #c084fc;
+                }
+            }
+
+            .payout-table th,
+            .payout-table td {
+                border: 1px solid #374151;
+            }
+
+            /* ENHANCEMENT: Coin animation for celebrating wins */
+            .coin-container {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                pointer-events: none;
+                z-index: 100;
+            }
+            .coin {
+                position: absolute;
+                background: gold;
+                border-radius: 50%;
+                animation: fall linear forwards;
+            }
+            @keyframes fall {
+                to {
+                    transform: translateY(100vh) rotate(360deg);
+                    opacity: 0;
+                }
+            }
+        </style>
+    </head>
+    <body class="flex flex-col items-center justify-center min-h-screen p-4">
+        <!-- ENHANCEMENT: Container for coin animation -->
+        <div id="coin-container" class="coin-container"></div>
+
+        <div
+            class="w-full max-w-2xl bg-gray-800 rounded-2xl shadow-2xl p-4 sm:p-6 border-2 border-indigo-800 relative"
+        >
+            <h1
+                class="text-3xl sm:text-4xl font-bold text-center mb-4 text-indigo-300 uppercase tracking-widest font-orbitron"
+            >
+                Fake Jackpot
+            </h1>
+
+            <div
+                class="flex flex-col items-start bg-gray-900 rounded-lg p-3 mb-4 text-lg sm:text-xl font-orbitron"
+            >
+                <div>
+                    <span class="font-semibold text-gray-400">BALANCE:</span>
+                    <span id="balance-display" class="font-bold text-green-400"
+                        >$1,000</span
+                    >
+                </div>
+                <div>
+                    <span class="font-semibold text-gray-400">BET:</span>
+                    <span id="bet-display" class="font-bold text-yellow-400"
+                        >$10</span
+                    >
+                </div>
+            </div>
+
+            <div
+                id="slot-display"
+                class="slot-display flex justify-center items-center rounded-lg p-4 sm:p-6 mb-4 text-5xl sm:text-7xl font-bold tracking-widest space-x-2 sm:space-x-4 font-orbitron"
+            >
+                <span class="slot-digit">0</span
+                ><span class="slot-digit">0</span
+                ><span class="slot-digit">0</span
+                ><span class="slot-digit">0</span
+                ><span class="slot-digit">0</span
+                ><span class="slot-digit">0</span>
+            </div>
+
+            <div
+                id="message-display"
+                class="text-center h-8 text-lg text-yellow-300 font-semibold mb-4 transition-all duration-300"
+            >
+                Press SPIN to play!
+            </div>
+
+            <!-- ENHANCEMENT: Re-arranged buttons for better flow, added Auto Spin -->
+            <div class="grid grid-cols-4 gap-2 sm:gap-4">
+                <button
+                    id="decrease-bet"
+                    class="btn btn-bet rounded-lg py-3 text-lg sm:text-xl font-bold col-span-1"
+                >
+                    -
+                </button>
+                <button
+                    id="increase-bet"
+                    class="btn btn-bet rounded-lg py-3 text-lg sm:text-xl font-bold col-span-1"
+                >
+                    +
+                </button>
+                <button
+                    id="all-in-button"
+                    class="btn btn-all-in rounded-lg py-3 text-lg sm:text-xl font-bold col-span-2"
+                >
+                    ALL IN
+                </button>
+
+                <button
+                    id="spin-button"
+                    class="col-span-3 btn btn-spin rounded-lg py-3 text-xl sm:text-2xl font-bold uppercase"
+                >
+                    Spin
+                </button>
+                <button
+                    id="auto-spin-button"
+                    class="btn btn-auto rounded-lg py-3 text-lg sm:text-xl font-bold"
+                    title="Auto Spin"
+                >
+                    AUTO
+                </button>
+            </div>
+
+            <div class="mt-4">
+                <button
+                    id="reset-button"
+                    class="btn btn-reset w-full rounded-lg py-3 text-lg font-bold uppercase"
+                >
+                    Reset Progress
+                </button>
+            </div>
+        </div>
+
+        <div class="w-full max-w-2xl mt-6 mb-4">
+            <details
+                class="bg-gray-800 border-2 border-indigo-800 rounded-lg p-2 text-center cursor-pointer"
+            >
+                <summary
+                    class="font-bold text-indigo-300 uppercase tracking-wider"
+                >
+                    Payout Table
+                </summary>
+                <table
+                    class="w-full text-left mt-4 text-sm sm:text-base payout-table"
+                >
+                    <thead class="bg-gray-700/50">
+                        <tr>
+                            <th class="p-2">Combination</th>
+                            <th class="p-2">Payout (x Bet)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="bg-gray-900/50">
+                            <td class="p-2">Jackpot (999999)</td>
+                            <td class="p-2">x5000</td>
+                        </tr>
+                        <tr class="bg-gray-800/50">
+                            <td class="p-2">6 of a Kind</td>
+                            <td class="p-2">x1000</td>
+                        </tr>
+                        <tr class="bg-gray-900/50">
+                            <td class="p-2">Straight (e.g., 123456)</td>
+                            <td class="p-2">x750</td>
+                        </tr>
+                        <tr class="bg-gray-800/50">
+                            <td class="p-2">5 of a Kind</td>
+                            <td class="p-2">x200</td>
+                        </tr>
+                        <tr class="bg-gray-900/50">
+                            <td class="p-2">5 in a Row (e.g., x23456)</td>
+                            <td class="p-2">x150</td>
+                        </tr>
+                        <tr class="bg-gray-800/50">
+                            <td class="p-2">4 of a Kind</td>
+                            <td class="p-2">x50</td>
+                        </tr>
+                        <tr class="bg-gray-900/50">
+                            <td class="p-2">4 in a Row</td>
+                            <td class="p-2">x40</td>
+                        </tr>
+                        <tr class="bg-gray-800/50">
+                            <td class="p-2">3 of a Kind</td>
+                            <td class="p-2">x5</td>
+                        </tr>
+                        <tr class="bg-gray-900/50">
+                            <td class="p-2">3 in a Row</td>
+                            <td class="p-2">x4</td>
+                        </tr>
+                        <!-- ENHANCEMENT: "Loss Disguised as Win". Player bets $10, wins $2. Still feels like a win. -->
+                        <tr class="bg-gray-800/50">
+                            <td class="p-2">2 of a Kind</td>
+                            <td class="p-2">x0.2 (Refund)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </details>
+        </div>
+
+        <script>
+            // DOM Elements
+            const balanceDisplay = document.getElementById("balance-display");
+            const betDisplay = document.getElementById("bet-display");
+            const slotDigits = document.querySelectorAll(".slot-digit");
+            const messageDisplay = document.getElementById("message-display");
+            const spinButton = document.getElementById("spin-button");
+            const increaseBetButton = document.getElementById("increase-bet");
+            const decreaseBetButton = document.getElementById("decrease-bet");
+            const resetButton = document.getElementById("reset-button");
+            const slotDisplay = document.getElementById("slot-display");
+            const allInButton = document.getElementById("all-in-button");
+            const coinContainer = document.getElementById("coin-container");
+            const autoSpinButton = document.getElementById("auto-spin-button"); // ENHANCEMENT
+
+            // --- Game State using BigInt ---
+            const MINIMUM_BET = 1n;
+            const STARTING_BALANCE = 1000n;
+            const STARTING_BET = 10n;
+            // REMOVED: No more MAX_BET constant
+
+            let balance = STARTING_BALANCE;
+            let currentBet = STARTING_BET;
+            let isSpinning = false;
+            let isAllIn = false;
+            let spinIntervals = [];
+            let finalResultStr = "";
+            let currentSpinBetAmount = 0n;
+
+            // ENHANCEMENT: Autoplay state
+            let isAutoplaying = false;
+            let autoplayInterval;
+
+            // --- Cookie Functions ---
+            function setCookie(name, value, days) {
+                let expires = "";
+                if (days) {
+                    let date = new Date();
+                    date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+                    expires = "; expires=" + date.toUTCString();
+                }
+                // Store BigInt as a string
+                document.cookie =
+                    name + "=" + (value.toString() || "") + expires + "; path=/";
+            }
+            function getCookie(name) {
+                let nameEQ = name + "=";
+                let ca = document.cookie.split(";");
+                for (let i = 0; i < ca.length; i++) {
+                    let c = ca[i];
+                    while (c.charAt(0) == " ") c = c.substring(1, c.length);
+                    if (c.indexOf(nameEQ) == 0)
+                        return c.substring(nameEQ.length, c.length);
+                }
+                return null;
+            }
+            function eraseCookie(name) {
+                document.cookie = name + "=; Max-Age=-99999999;";
+            }
+
+            // --- Utility Functions ---
+            function formatNumber(num) {
+                // toLocaleString works with BigInt
+                return num.toLocaleString();
+            }
+
+            function updateDisplay() {
+                balanceDisplay.textContent = `$${formatNumber(balance)}`;
+                let effectiveBet = isAllIn ? balance : currentBet;
+                
+                betDisplay.textContent = `$${formatNumber(effectiveBet)}`;
+
+                const cannotPlay = isSpinning || (isAutoplaying && !isSpinning);
+                spinButton.disabled =
+                    balance < effectiveBet || cannotPlay || balance <= 0n;
+                allInButton.disabled = balance <= 0n || isAllIn || cannotPlay;
+
+                const nextBet = getNextBetStep(currentBet);
+                increaseBetButton.disabled =
+                    nextBet > balance || cannotPlay || isAllIn; // REMOVED: MAX_BET check
+                decreaseBetButton.disabled =
+                    currentBet <= MINIMUM_BET || cannotPlay || isAllIn;
+
+                setCookie("slotMachineBalance", balance, 365);
+                setCookie("slotMachineBet", currentBet, 365);
+            }
+
+            function getRandomInt(min, max) {
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            }
+            function showMessage(text, isWin = false, duration = 3000) {
+                messageDisplay.textContent = text;
+                messageDisplay.style.color = isWin ? "#4ade80" : "#fde047";
+                if (!isSpinning && !isAutoplaying) {
+                    setTimeout(() => {
+                        if (messageDisplay.textContent === text) {
+                            messageDisplay.textContent = "Ready to spin again!";
+                            messageDisplay.style.color = "#fde047";
+                        }
+                    }, duration);
+                }
+            }
+            function clearWinEffects() {
+                slotDisplay.classList.remove(
+                    "win-jackpot",
+                    "win-major",
+                    "win-minor",
+                    "win-micro"
+                );
+            }
+
+            // --- DYNAMIC BETTING LOGIC with BigInt ---
+            function getNextBetStep(bet) {
+                if (bet < MINIMUM_BET) return MINIMUM_BET;
+                // Using string manipulation for order of magnitude with BigInt
+                const betStr = bet.toString();
+                const orderOfMagnitude = BigInt('1' + '0'.repeat(betStr.length - 1));
+                const increment = orderOfMagnitude / 2n || 1n;
+                let nextBet = (bet + increment) / increment * increment;
+                return nextBet; // REMOVED: MAX_BET check
+            }
+
+            function getPreviousBetStep(bet) {
+                if (bet <= MINIMUM_BET) return MINIMUM_BET;
+                const betMinusOneStr = (bet - 1n).toString();
+                const orderOfMagnitude = BigInt('1' + '0'.repeat(betMinusOneStr.length - 1));
+                const increment = orderOfMagnitude / 2n || 1n;
+                let prevBet = (bet - 1n) / increment * increment;
+                return prevBet < MINIMUM_BET ? MINIMUM_BET : prevBet;
+            }
+
+
+            function increaseBet() {
+                isAllIn = false;
+                let nextBet = getNextBetStep(currentBet);
+                if (nextBet > balance) {
+                    nextBet = balance;
+                }
+                currentBet = nextBet; // REMOVED: MAX_BET check
+                updateDisplay();
+            }
+
+            function decreaseBet() {
+                isAllIn = false;
+                currentBet = getPreviousBetStep(currentBet);
+                updateDisplay();
+            }
+
+            function setAllIn() {
+                if (balance > 0n) {
+                    isAllIn = true;
+                    updateDisplay();
+                }
+            }
+
+            // --- Core Game Logic ---
+            function spin() {
+                if (isSpinning) {
+                    slamStop();
+                    return;
+                }
+
+                let betAmount = isAllIn ? balance : currentBet;
+                // REMOVED: MAX_BET check from spin logic
+
+                if (balance < betAmount) {
+                    if (isAutoplaying) toggleAutoplay();
+                    return;
+                }
+
+                currentSpinBetAmount = betAmount;
+
+                isSpinning = true;
+                balance -= betAmount;
+                clearWinEffects();
+                updateDisplay();
+                showMessage("Spinning...");
+                spinButton.textContent = "STOP";
+
+                const finalResult = generateFinalResult();
+                finalResultStr = finalResult.toString().padStart(6, "0");
+
+                slotDigits.forEach((digit, index) => {
+                    const spinDuration = 2000 + index * 400;
+                    spinIntervals[index] = setInterval(() => {
+                        digit.textContent = getRandomInt(0, 9);
+                    }, 100);
+
+                    setTimeout(() => {
+                        stopReel(index);
+                    }, spinDuration);
+                });
+            }
+
+            function stopReel(index) {
+                if (!spinIntervals[index]) return;
+
+                clearInterval(spinIntervals[index]);
+                spinIntervals[index] = null;
+                const digit = slotDigits[index];
+                digit.textContent = finalResultStr[index];
+                digit.classList.add("digit-land");
+                setTimeout(() => digit.classList.remove("digit-land"), 200);
+
+                if (spinIntervals.every((interval) => interval === null)) {
+                    checkWin(finalResultStr, currentSpinBetAmount);
+                }
+            }
+            
+            function slamStop() {
+                spinIntervals.forEach((_, index) => {
+                    setTimeout(() => stopReel(index), index * 50);
+                });
+            }
+
+            function generateFinalResult() {
+                const chance = Math.random();
+                if (chance < 0.00005) return 999999; 
+                if (chance < 0.01) return generateNearMiss();
+                if (chance < 0.0005) return generateNOfAKind(6);
+                if (chance < 0.001) return generateStraight();
+                if (chance < 0.005) return generateNOfAKind(5);
+                if (chance < 0.007) return generateNInARow(5);
+                if (chance < 0.025) return generateNOfAKind(4);
+                if (chance < 0.035) return generateNInARow(4);
+                if (chance < 0.1) return generateNOfAKind(3);
+                if (chance < 0.15) return generateNInARow(3);
+                if (chance < 0.35) return generateNOfAKind(2);
+                return getRandomInt(0, 999999);
+            }
+
+            function generateNearMiss() {
+                const jackpotAlmost = "99999" + getRandomInt(0, 8);
+                const sixOfAKindAlmost = ((d) =>
+                    d +
+                    d +
+                    d +
+                    d +
+                    d +
+                    getRandomInt(0, 9).toString().replace(d, ""))(
+                    getRandomInt(0, 9).toString()
+                );
+                const options = [jackpotAlmost, sixOfAKindAlmost];
+                return parseInt(options[getRandomInt(0, options.length - 1)]);
+            }
+
+            function generateNOfAKind(n) {
+                const d = getRandomInt(0, 9).toString();
+                let r = Array(6)
+                    .fill(null)
+                    .map(() => getRandomInt(0, 9).toString());
+                let p = [0, 1, 2, 3, 4, 5];
+                for (let i = 0; i < n; i++) {
+                    const x = getRandomInt(0, p.length - 1);
+                    const o = p.splice(x, 1)[0];
+                    r[o] = d;
+                }
+                return parseInt(r.join(""));
+            }
+            function generateStraight() {
+                const s = getRandomInt(0, 4);
+                return parseInt(
+                    Array.from({ length: 6 }, (_, i) => s + i).join("")
+                );
+            }
+            function generateNInARow(n) {
+                const s = getRandomInt(0, 9 - n);
+                let q = "";
+                for (let i = 0; i < n; i++) {
+                    q += s + i;
+                }
+                let r = Array(6).fill(null);
+                const p = getRandomInt(0, 6 - n);
+                for (let i = 0; i < n; i++) {
+                    r[p + i] = q[i];
+                }
+                for (let i = 0; i < 6; i++) {
+                    if (r[i] === null) {
+                        r[i] = getRandomInt(0, 9).toString();
+                    }
+                }
+                return parseInt(r.join(""));
+            }
+            function isStraight(s) {
+                for (let i = 0; i < s.length - 1; i++) {
+                    if (parseInt(s[i + 1]) !== parseInt(s[i]) + 1) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            function isNInARow(s, n) {
+                for (let i = 0; i <= s.length - n; i++) {
+                    let q = true;
+                    for (let j = 0; j < n - 1; j++) {
+                        if (parseInt(s[i + j + 1]) !== parseInt(s[i + j]) + 1) {
+                            q = false;
+                            break;
+                        }
+                    }
+                    if (q) return true;
+                }
+                return false;
+            }
+
+            function checkWin(resultStr, betAmount) {
+                const counts = {};
+                for (const d of resultStr) {
+                    counts[d] = (counts[d] || 0) + 1;
+                }
+                const maxCount = Math.max(...Object.values(counts));
+                let payout = 0n;
+                let winType = "";
+                let winLevel = 0;
+                
+                // Payout calculations now use BigInt
+                if (resultStr === "999999") {
+                    payout = betAmount * 5000n;
+                    winType = "JACKPOT!!!";
+                    winLevel = 3;
+                } else if (maxCount === 6) {
+                    payout = betAmount * 1000n;
+                    winType = "6 of a Kind!";
+                    winLevel = 2;
+                } else if (isStraight(resultStr)) {
+                    payout = betAmount * 750n;
+                    winType = "Straight!";
+                    winLevel = 2;
+                } else if (maxCount === 5) {
+                    payout = betAmount * 200n;
+                    winType = "5 of a Kind!";
+                    winLevel = 2;
+                } else if (isNInARow(resultStr, 5)) {
+                    payout = betAmount * 150n;
+                    winType = "5 in a Row!";
+                    winLevel = 2;
+                } else if (maxCount === 4) {
+                    payout = betAmount * 50n;
+                    winType = "4 of a Kind!";
+                    winLevel = 1;
+                } else if (isNInARow(resultStr, 4)) {
+                    payout = betAmount * 40n;
+                    winType = "4 in a Row!";
+                    winLevel = 1;
+                } else if (maxCount === 3) {
+                    payout = betAmount * 5n;
+                    winType = "3 of a Kind!";
+                    winLevel = 1;
+                } else if (isNInARow(resultStr, 3)) {
+                    payout = betAmount * 4n;
+                    winType = "3 in a Row!";
+                    winLevel = 1;
+                } else if (maxCount === 2) {
+                    payout = betAmount / 5n; // 0.2 multiplier
+                    winType = "Refund!";
+                    winLevel = 0;
+                }
+
+                if (payout > 0n) {
+                    balance += payout;
+                    showMessage(
+                        `${winType} You win $${formatNumber(payout)}!`,
+                        true,
+                        5000
+                    );
+                    triggerWinAnimation(winLevel);
+                } else {
+                    showMessage("Better luck next time...", false);
+                }
+
+                isAllIn = false;
+                isSpinning = false;
+                spinButton.textContent = "SPIN";
+
+                if (currentBet > balance) {
+                    currentBet = balance > 0n ? getPreviousBetStep(balance) : MINIMUM_BET;
+                }
+                if (balance <= 0n) {
+                    balance = 0n; // Ensure balance doesn't go negative
+                    showMessage(
+                        "Game Over! You are out of money.",
+                        false,
+                        10000
+                    );
+                    if (isAutoplaying) toggleAutoplay();
+                }
+
+                updateDisplay();
+
+                if (isAutoplaying && balance > 0n) {
+                    setTimeout(spin, 1500);
+                }
+            }
+
+            function triggerWinAnimation(level) {
+                let coinCount = 0;
+                if (level === 3) {
+                    slotDisplay.classList.add("win-jackpot");
+                    coinCount = 100;
+                } else if (level === 2) {
+                    slotDisplay.classList.add("win-major");
+                    coinCount = 50;
+                } else if (level === 1) {
+                    slotDisplay.classList.add("win-minor");
+                    coinCount = 20;
+                } else {
+                    slotDisplay.classList.add("win-micro");
+                    coinCount = 5;
+                }
+
+                for (let i = 0; i < coinCount; i++) {
+                    setTimeout(() => {
+                        const coin = document.createElement("div");
+                        coin.classList.add("coin");
+                        const size = Math.random() * 15 + 5;
+                        coin.style.width = `${size}px`;
+                        coin.style.height = `${size}px`;
+                        coin.style.left = `${Math.random() * 100}%`;
+                        coin.style.animationDuration = `${
+                            Math.random() * 2 + 3
+                        }s`;
+                        coinContainer.appendChild(coin);
+                        setTimeout(() => coin.remove(), 5000);
+                    }, i * 20);
+                }
+            }
+            
+            function toggleAutoplay() {
+                isAutoplaying = !isAutoplaying;
+                if (isAutoplaying) {
+                    autoSpinButton.classList.add("active");
+                    autoSpinButton.textContent = "STOP";
+                    spin();
+                } else {
+                    autoSpinButton.classList.remove("active");
+                    autoSpinButton.textContent = "AUTO";
+                }
+                updateDisplay();
+            }
+
+            function resetProgress() {
+                if (confirm("Are you sure you want to reset your progress?")) {
+                    if (isAutoplaying) toggleAutoplay();
+                    balance = STARTING_BALANCE;
+                    currentBet = STARTING_BET;
+                    isAllIn = false;
+                    eraseCookie("slotMachineBalance");
+                    eraseCookie("slotMachineBet");
+                    updateDisplay();
+                    showMessage("Progress has been reset.", false);
+                }
+            }
+
+            // --- Event Listeners ---
+            spinButton.addEventListener("click", spin);
+            increaseBetButton.addEventListener("click", increaseBet);
+            decreaseBetButton.addEventListener("click", decreaseBet);
+            resetButton.addEventListener("click", resetProgress);
+            allInButton.addEventListener("click", setAllIn);
+            autoSpinButton.addEventListener("click", toggleAutoplay);
+
+            // --- Initial Setup ---
+            window.onload = () => {
+                const savedBalance = getCookie("slotMachineBalance");
+                const savedBet = getCookie("slotMachineBet");
+                if (savedBalance) {
+                    // Use BigInt constructor to parse the string from the cookie
+                    balance = BigInt(savedBalance);
+                }
+                if (savedBet) {
+                    currentBet = BigInt(savedBet);
+                }
+                if (currentBet > balance) {
+                    currentBet = balance;
+                }
+                if (balance > 0n && currentBet <= 0n) {
+                    currentBet = MINIMUM_BET;
+                }
+                updateDisplay();
+            };
+        </script>
+    </body>
+</html>

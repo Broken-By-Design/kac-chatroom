@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Materials - Access Restricted | OpenScholar Texts</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/academic.css') }}">
+    <script src="{{ url_for('static', filename='js/global/cloaker.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/login.js') }}" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">OpenScholar Texts <span>| Course Reading</span></div>
+        <nav class="links">
+            <a href="#">Subjects</a>
+            <a href="#">My Library</a>
+            <a href="#">Notes</a>
+            <a href="#">Account</a>
+        </nav>
+    </header>
+
+    <div class="crumbs">
+        <a href="#">Home</a> &gt; <a href="#">Course Materials</a> &gt; Access
+    </div>
+
+    <main class="page">
+        <section class="access">
+            <h1>Access to Course Materials Restricted</h1>
+            <p class="note">Your access to this course's materials has been disabled. Contact your instructor if you believe this is an error.</p>
+            <div class="detail">
+                {% if expiry == "Permanent" %}
+                    <p>This restriction is <strong>permanent</strong>.</p>
+                {% else %}
+                    <p>Your access will be restored on:<br><strong>{{ expiry }}</strong></p>
+                {% endif %}
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        OpenScholar Texts | U.S. History, Volume 2 | Chapter 14: The Rise of Industrial America
+    </footer>
+</body>
+</html>

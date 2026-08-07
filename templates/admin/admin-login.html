@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Materials - Staff Access | OpenScholar Texts</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/academic.css') }}">
+
+    <script src="{{ url_for('static', filename='js/global/cloaker.js') }}" defer></script>
+
+    <script src="{{ url_for('static', filename='js/admin/login.js') }}" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">OpenScholar Texts <span>| Course Reading</span></div>
+        <nav class="links">
+            <a href="#">Subjects</a>
+            <a href="#">My Library</a>
+            <a href="#">Notes</a>
+            <a href="#">Account</a>
+        </nav>
+    </header>
+
+    <div class="crumbs">
+        <a href="#">Home</a> &gt; <a href="#">Course Materials</a> &gt; Staff Access
+    </div>
+
+    <main class="page">
+        <section class="card">
+            <h1>Course Management</h1>
+            <p class="note">Enter the staff access code to manage course materials and participants.</p>
+            <form action="/admin-login" method="POST">
+                <input type="password" name="password" placeholder="Staff access code" required>
+                <button type="submit">Continue</button>
+            </form>
+            <div class="error">{{ error }}</div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        OpenScholar Texts | U.S. History, Volume 2 | Chapter 14: The Rise of Industrial America
+    </footer>
+</body>
+</html>

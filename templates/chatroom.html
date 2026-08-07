@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/chatroom.css') }}"
+    />
+    <script
+      src="https://cdn.socket.io/4.8.1/socket.io.min.js"
+      integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+"
+      crossorigin="anonymous"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jitbit/htmlsanitizer@latest/HtmlSanitizer.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/emoji-js/3.8.1/emoji.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/lib/marked.umd.js"></script>
+
+    <script src="{{ url_for('static', filename='js/global/cloaker.js') }}" defer></script>
+
+    <script src="{{ url_for('static', filename='js/chatroom/utils.js') }}" defer></script>
+
+    <script src="{{ url_for('static', filename='js/chatroom/ui.js') }}" defer></script>
+
+    <script src="{{ url_for('static', filename='js/chatroom/socket.js') }}" defer></script>
+
+    <script src="{{ url_for('static', filename='js/chatroom/main.js') }}" defer></script>
+    <title>Reading - OpenScholar Texts</title>
+  </head>
+  <body data-nickname="{{ nickname }}">
+    <main class="scroll-area">
+      <ul id="messages"></ul>
+    </main>
+
+    <div id="typing" class="typing" style="display: none;"></div>
+
+    <form id="form" class="composer" action="">
+      <button id="openDM" type="button" class="icon-btn" title="Send a direct message">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+      </button>
+      <button id="openFile" type="button" class="icon-btn" title="Attach an image">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+          <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>
+      </button>
+      <input type="file" id="fileInput" style="display: none;" accept="image/*" />
+      <input id="input" autocomplete="off" placeholder="Type Here" />
+      <button type="submit" class="send-btn">Send</button>
+    </form>
+
+    <div id="imageLightbox" class="image-lightbox">
+      <img id="imageLightboxImg" class="image-lightbox-img" alt="Enlarged image" />
+    </div>
+
+    <div id="imageOption" class="image-modal">
+      <div class="image-modal-card">
+        <div class="image-modal-title">Attach image</div>
+        <img id="imagePreview" class="image-modal-preview" />
+        <label class="image-modal-label">
+          <input type="checkbox" id="botCheckbox" />
+          Ask the study bot about this image?
+        </label>
+        <input type="text" id="botQuestion" class="image-modal-question" placeholder="Question for the study bot" autocomplete="off" style="display: none;"/>
+        <div class="image-modal-actions">
+          <button id="sendImage" class="send-btn">Send</button>
+          <button id="cancelUpload" class="cancel-btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
