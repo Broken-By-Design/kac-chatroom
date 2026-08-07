@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -67,7 +68,11 @@ func initTemplates() {
 				if len(args) > 1 {
 					if m, ok := args[1].(map[string]any); ok {
 						if f, ok := m["filename"].(string); ok {
-							return "/static/" + f
+							v := ""
+							if fi, err := os.Stat(filepath.Join("static", filepath.FromSlash(f))); err == nil {
+								v = "?v=" + strconv.FormatInt(fi.ModTime().Unix(), 10)
+							}
+							return "/static/" + f + v
 						}
 					}
 				}
