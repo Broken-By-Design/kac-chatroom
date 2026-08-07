@@ -14,4 +14,4 @@ subtitles/
 *.dbm
 
 # binaries
-chatroom
+/chatroom
