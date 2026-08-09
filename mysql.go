@@ -29,8 +29,9 @@ func connectDB() *sql.DB {
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4", user, pass, host, port, name)
 
-	for {
-		fmt.Println("Attempting to connect to the database...")
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		fmt.Printf("Attempting to connect to the database (attempt %d/%d)...\n", attempt, maxAttempts)
 		conn, err := sql.Open("mysql", dsn)
 		if err == nil {
 			conn.SetMaxOpenConns(10)
@@ -42,8 +43,35 @@ func connectDB() *sql.DB {
 			_ = conn.Close()
 		}
 		fmt.Printf("⚠️ Database connection failed: %v\n", err)
-		fmt.Println("Retrying in 3 seconds...")
-		time.Sleep(3 * time.Second)
+		if attempt < maxAttempts {
+			fmt.Println("Retrying in 3 seconds...")
+			time.Sleep(3 * time.Second)
+		}
+	}
+
+	fmt.Println("⚠️ Database unreachable after 3 attempts. Starting without database support.")
+	fmt.Println("Will periodically retry connecting in the background to enable ban persistence.")
+	go reconnectDB(dsn)
+	return nil
+}
+
+func reconnectDB(dsn string) {
+	for {
+		time.Sleep(1 * time.Minute)
+		fmt.Println("Attempting to reconnect to the database...")
+		conn, err := sql.Open("mysql", dsn)
+		if err == nil {
+			conn.SetMaxOpenConns(10)
+			conn.SetMaxIdleConns(5)
+			if err := conn.Ping(); err == nil {
+				fmt.Println("✅ Database connection restored.")
+				db = conn
+				syncBanListFromDB()
+				return
+			}
+			_ = conn.Close()
+		}
+		fmt.Printf("⚠️ Database reconnection failed: %v. Will retry again in 30 seconds.\n", err)
 	}
 }
 

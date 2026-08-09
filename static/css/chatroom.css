@@ -137,7 +137,7 @@ body {
     background: var(--own-grad);
     border-color: transparent;
     color: var(--own-text);
-    border-radius: 14px 4px 14px 14px;
+    border-radius: 4px 14px 14px 14px;
 }
 
 .msg-text a {
