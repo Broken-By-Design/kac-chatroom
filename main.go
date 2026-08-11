@@ -27,10 +27,10 @@ import (
 const shareKey = "LofCen6W"
 
 var (
-	secretKey     string
-	chatSecretKey string
+	secretKey      string
+	chatSecretKey  string
 	adminSecretKey string
-	geminiAPIKey  string
+	geminiAPIKey   string
 )
 
 func main() {
@@ -150,6 +150,10 @@ func setupRoutes(app *fiber.App) {
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return render(c, "decoy.html", nil)
+	})
+
+	app.Get("/ping", func(c *fiber.Ctx) error {
+		return c.SendString("Pong!")
 	})
 
 	app.Get("/tests", func(c *fiber.Ctx) error {
@@ -649,7 +653,7 @@ func setupRoutes(app *fiber.App) {
 // fetchSubtitles implements main.py get_subtitle.
 func fetchSubtitles(fid string) ([]map[string]string, int, string) {
 	fidDir := filepath.Join("subtitles", fid)
-	_ = os.MkdirAll(fidDir, 0755)
+	_ = os.MkdirAll(fidDir, 0o755)
 
 	entries, _ := os.ReadDir(fidDir)
 	existing := []string{}
@@ -768,7 +772,7 @@ func fetchSubtitles(fid string) ([]map[string]string, int, string) {
 			vttLines = append(vttLines, line)
 		}
 		fileName := fmt.Sprintf("%d.vtt", index+1)
-		_ = os.WriteFile(filepath.Join(fidDir, fileName), []byte(strings.Join(vttLines, "\n")), 0644)
+		_ = os.WriteFile(filepath.Join(fidDir, fileName), []byte(strings.Join(vttLines, "\n")), 0o644)
 		processed = append(processed, map[string]string{
 			"label": fmt.Sprintf("English %d", index+1),
 			"src":   subtitleURL(fid, fileName),
