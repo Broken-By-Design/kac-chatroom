@@ -98,6 +98,11 @@ func generateResponse(message, user string, enableGoogleSearch, image bool, imag
 			}
 			response, err = aiClient.Models.GenerateContent(ctx, aiModel, contents, config)
 		}
+		if err != nil && enableGoogleSearch {
+			fmt.Printf("Request with Google Search failed (%v), retrying without it\n", err)
+			config.Tools = nil
+			response, err = aiClient.Models.GenerateContent(ctx, aiModel, contents, config)
+		}
 		if err != nil {
 			fmt.Printf("Gemini error: %v\n", err)
 			return "I ran into an error thinking about that."
