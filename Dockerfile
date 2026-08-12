@@ -10,8 +10,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /out/chatroom .
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates python3 py3-pip \
- && pip install --break-system-packages --no-cache-dir yt-dlp
+RUN apk add --no-cache ca-certificates
 WORKDIR /app
 
 COPY --from=builder /out/chatroom /usr/local/bin/chatroom

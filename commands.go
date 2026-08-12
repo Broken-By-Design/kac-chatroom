@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"html"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -93,36 +91,6 @@ func runsText(node any) string {
 		}
 	}
 	return sb.String()
-}
-
-// streamResolveSem caps concurrent yt-dlp subprocesses to protect the host's
-// RAM/CPU from spikes when several video streams resolve at once.
-var streamResolveSem = make(chan struct{}, 2)
-
-// resolveVideoStreamURL uses yt-dlp in simulate mode to fetch a direct,
-// time-limited stream URL for a video. Nothing is downloaded or stored.
-func resolveVideoStreamURL(videoID string) string {
-	streamResolveSem <- struct{}{}
-	defer func() { <-streamResolveSem }()
-
-	ytdlp, err := exec.LookPath("yt-dlp")
-	if err != nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, ytdlp, "-g", "--no-warnings",
-		"-f", "best[height<=1080]/best",
-		"https://www.youtube.com/watch?v="+videoID)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	url := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
-	if url == "" || strings.HasPrefix(url, "ERROR:") || !strings.Contains(url, "googlevideo.com") {
-		return ""
-	}
-	return url
 }
 
 func parseCommand(message, nickname, timestamp string) {
