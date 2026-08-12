@@ -2,11 +2,9 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -340,41 +338,6 @@ func handleChatMessage(s *socketio.Socket, data []any) {
 		state.ensureConnected(nickname, sid, getRealIP(requestOf(s)))
 	}
 
-	if results, ok := state.consumePendingVideoSelections(nickname); ok {
-		if n, err := strconv.Atoi(strings.TrimSpace(message)); err == nil && n >= 1 && n <= len(results) {
-			track := results[n-1]
-			loading := html.EscapeString("Hold on, grabbing a stream...")
-			emitChatMessage(map[string]any{"message": loading, "nickname": "KAC-Bot", "timestamp": timestamp, "system": true})
-			go func() {
-				streamURL := resolveVideoStreamURL(track.VideoID)
-				if streamURL == "" {
-					streamURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", track.VideoID)
-				}
-				ts := isoNow()
-				payload := map[string]any{"nickname": "KAC-Bot", "timestamp": ts}
-				if strings.Contains(streamURL, "googlevideo.com") {
-					label := html.EscapeString(fmt.Sprintf("Here you go %s : ", nickname))
-					payload["message"] = label
-					payload["video"] = streamURL
-					payload["title"] = track.Title
-					if blob, err := json.Marshal(map[string]string{
-						"url":   streamURL,
-						"label": fmt.Sprintf("Here you go %s : ", nickname),
-						"title": track.Title,
-					}); err == nil {
-						addChatlogEntry(string(blob), "KAC-Bot", ts, "video", "")
-					}
-				} else {
-					msgText := html.EscapeString(fmt.Sprintf("Here you go %s : %s", nickname, track.Title)) + " " + streamURL
-					payload["message"] = msgText
-					addChatlogEntry(msgText, "KAC-Bot", ts, "text", "")
-				}
-				emitChatMessage(payload)
-			}()
-			return
-		}
-	}
-
 	if message == "/clear" {
 		s.Emit("clear_chat")
 		return
@@ -411,9 +374,9 @@ func handleChatMessage(s *socketio.Socket, data []any) {
 		emitChatMessage(map[string]any{"message": msgText, "nickname": "KAC-Bot", "timestamp": timestamp, "system": true})
 		addChatlogEntry(msgText, "KAC-Bot", timestamp, "system", "")
 	} else if strings.HasPrefix(message, "/help") {
-		msgText := html.EscapeString(fmt.Sprintf("%s, The commands are: !bot <message>, /clear, /online, /highlight <message>, /cloak, /lyrics <song name>, /whitman, and /video <name>", nickname))
+		msgText := html.EscapeString(fmt.Sprintf("%s, The commands are: !bot <message>, /clear, /online, /highlight <message>, /cloak, /lyrics <song name>, /whitman, /gamble, and /videos", nickname))
 		emitChatMessage(map[string]any{"message": msgText, "nickname": "KAC-Bot", "timestamp": timestamp, "system": true})
-		addChatlogEntry(html.EscapeString(fmt.Sprintf("%s, The commands are: !bot <message>, /clear, /online, /highlight <message>, /cloak, /lyrics <song name>, /whitman, and /video <name>", nickname)), "KAC-Bot", timestamp, "system", "")
+		addChatlogEntry(html.EscapeString(fmt.Sprintf("%s, The commands are: !bot <message>, /clear, /online, /highlight <message>, /cloak, /lyrics <song name>, /whitman, /gamble, and /videos", nickname)), "KAC-Bot", timestamp, "system", "")
 	} else {
 		parseCommand(message, nickname, timestamp)
 	}

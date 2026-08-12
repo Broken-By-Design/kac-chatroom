@@ -170,15 +170,7 @@ var ChatApp = window.ChatApp || {};
 
         socket.on("chat_message", (msg) => {
             // Delegate UI updates to the UI module
-            if (msg.video) {
-                ui.addVideoMessage(
-                    msg.video,
-                    msg.nickname,
-                    msg.timestamp,
-                    msg.message,
-                    msg.title
-                );
-            } else if (msg.highlight) {
+            if (msg.highlight) {
                 ui.addHighlightedMessage(
                     msg.message,
                     msg.nickname,

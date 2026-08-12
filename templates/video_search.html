@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Video Search</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@400;700&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            body {
+                font-family: "Roboto", sans-serif;
+                background-color: #111827;
+                color: #f3f4f6;
+            }
+            .font-orbitron {
+                font-family: "Orbitron", sans-serif;
+            }
+            .result-card {
+                transition: all 0.15s ease-in-out;
+                cursor: pointer;
+            }
+            .result-card:hover {
+                background-color: #1f2937;
+                border-color: #6366f1;
+            }
+            .spinner {
+                border: 3px solid #374151;
+                border-top-color: #6366f1;
+                border-radius: 50%;
+                width: 1.5rem;
+                height: 1.5rem;
+                animation: spin 0.8s linear infinite;
+                display: inline-block;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+        </style>
+    </head>
+    <body class="flex flex-col items-center min-h-screen p-4">
+        <div class="w-full max-w-3xl">
+            <h1
+                class="text-3xl sm:text-4xl font-bold text-center mb-6 text-indigo-300 uppercase tracking-widest font-orbitron"
+            >
+                Video Search
+            </h1>
+
+            <div class="flex gap-2 mb-6">
+                <input
+                    id="searchInput"
+                    type="text"
+                    placeholder="Search YouTube..."
+                    class="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 outline-none focus:border-indigo-500"
+                />
+                <button
+                    id="searchBtn"
+                    class="bg-indigo-600 hover:bg-indigo-500 rounded-lg px-6 py-3 font-bold uppercase text-sm tracking-wider"
+                >
+                    Search
+                </button>
+            </div>
+
+            <div id="statusLine" class="text-center h-6 text-yellow-300 text-sm mb-4"></div>
+
+            <div id="results" class="flex flex-col gap-2"></div>
+
+            <div id="playerWrap" class="hidden">
+                <div class="bg-gray-800 border border-indigo-800 rounded-xl p-4">
+                    <video
+                        id="player"
+                        controls
+                        playsinline
+                        class="w-full rounded-lg bg-black"
+                        style="max-height: 60vh"
+                    ></video>
+                    <div class="flex items-center justify-between gap-3 mt-3">
+                        <h2 id="playerTitle" class="font-bold text-indigo-200 text-lg truncate"></h2>
+                        <a
+                            id="watchLink"
+                            href="#"
+                            target="_blank"
+                            rel="noopener"
+                            class="shrink-0 text-sm text-indigo-400 hover:text-indigo-300 underline"
+                            >Open on YouTube</a
+                        >
+                    </div>
+                    <button
+                        id="newSearchBtn"
+                        class="mt-4 w-full bg-gray-700 hover:bg-gray-600 rounded-lg py-2 font-bold uppercase text-sm"
+                    >
+                        Back to Results
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const searchInput = document.getElementById("searchInput");
+            const searchBtn = document.getElementById("searchBtn");
+            const statusLine = document.getElementById("statusLine");
+            const resultsEl = document.getElementById("results");
+            const playerWrap = document.getElementById("playerWrap");
+            const player = document.getElementById("player");
+            const playerTitle = document.getElementById("playerTitle");
+            const watchLink = document.getElementById("watchLink");
+            const newSearchBtn = document.getElementById("newSearchBtn");
+
+            let results = [];
+
+            function setStatus(text) {
+                statusLine.textContent = text || "";
+            }
+
+            async function search() {
+                const q = searchInput.value.trim();
+                if (!q) return;
+                playerWrap.classList.add("hidden");
+                resultsEl.innerHTML = "";
+                setStatus("Searching...");
+                try {
+                    const resp = await fetch("/api/video/search?q=" + encodeURIComponent(q));
+                    if (!resp.ok) throw new Error(resp.status);
+                    results = await resp.json();
+                } catch (e) {
+                    setStatus("Search failed. Try again.");
+                    return;
+                }
+                if (!results.length) {
+                    setStatus('No results for "' + q + '".');
+                    return;
+                }
+                setStatus("");
+                resultsEl.innerHTML = "";
+                results.forEach((r, i) => {
+                    const card = document.createElement("div");
+                    card.className =
+                        "result-card bg-gray-800/60 border border-gray-700 rounded-lg p-3 flex items-center gap-3";
+                    card.innerHTML =
+                        '<span class="text-indigo-400 font-bold font-orbitron shrink-0">' +
+                        (i + 1) +
+                        "</span><div class='min-w-0'><div class='font-semibold truncate text-gray-100'>" +
+                        r.title +
+                        "</div><div class='text-sm text-gray-400 truncate'>" +
+                        r.channel +
+                        "</div></div>";
+                    card.addEventListener("click", () => play(r));
+                    resultsEl.appendChild(card);
+                });
+            }
+
+            async function play(r) {
+                resultsEl.innerHTML = "";
+                playerWrap.classList.add("hidden");
+                setStatus("Hold on, grabbing a stream...");
+                try {
+                    const resp = await fetch("/api/video/stream/" + encodeURIComponent(r.VideoID));
+                    const data = await resp.json();
+                    const direct = data.url && data.url.indexOf("googlevideo.com") !== -1;
+                    if (direct) {
+                        player.src = data.url;
+                        player.load();
+                    } else {
+                        player.src = "";
+                        player.removeAttribute("src");
+                        player.innerHTML =
+                            '<iframe class="w-full rounded-lg bg-black" style="height:60vh" src="https://www.youtube.com/embed/' +
+                            r.VideoID +
+                            '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>';
+                    }
+                    playerTitle.textContent = r.title;
+                    watchLink.href = "https://www.youtube.com/watch?v=" + r.VideoID;
+                    playerWrap.classList.remove("hidden");
+                    setStatus("");
+                } catch (e) {
+                    setStatus("Couldn't load that video.");
+                }
+            }
+
+            searchBtn.addEventListener("click", search);
+            newSearchBtn.addEventListener("click", () => {
+                playerWrap.classList.add("hidden");
+                player.removeAttribute("src");
+                player.innerHTML = "";
+                search();
+            });
+            searchInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") search();
+            });
+            searchInput.focus();
+        </script>
+    </body>
+</html>

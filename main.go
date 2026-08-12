@@ -277,6 +277,22 @@ func setupRoutes(app *fiber.App) {
 		return render(c, "gamble.html", nil)
 	})
 
+	app.Get("/video-search-d6eca0", func(c *fiber.Ctx) error {
+		return render(c, "video_search.html", nil)
+	})
+
+	app.Get("/api/video/search", func(c *fiber.Ctx) error {
+		q := strings.TrimSpace(c.Query("q"))
+		if q == "" {
+			return c.JSON([]VideoSearchResult{})
+		}
+		return c.JSON(searchVideos(q))
+	})
+
+	app.Get("/api/video/stream/:id", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"url": resolveVideoStreamURL(c.Params("id"))})
+	})
+
 	app.Get("/get_stream/:fid", func(c *fiber.Ctx) error {
 		fid := c.Params("fid")
 		resp, err := http.Get(fmt.Sprintf("https://feb.superstudies.site/api/febbox/links?shareKey=%s&fid=%s", shareKey, fid))
@@ -625,11 +641,10 @@ func setupRoutes(app *fiber.App) {
 
 	app.Post("/admin/clear-cache", adminRequired, func(c *fiber.Ctx) error {
 		images := clearImageHashCache()
-		pending := state.clearPendingVideoSelections()
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		msg := fmt.Sprintf("Cleared %d image-hash cache entries and %d pending video selections. Heap: %.1f MB, System: %.1f MB.",
-			images, pending, float64(m.HeapAlloc)/1024/1024, float64(m.Sys)/1024/1024)
+		msg := fmt.Sprintf("Cleared %d image-hash cache entries. Heap: %.1f MB, System: %.1f MB.",
+			images, float64(m.HeapAlloc)/1024/1024, float64(m.Sys)/1024/1024)
 		fmt.Println(msg)
 		return c.JSON(fiber.Map{"message": msg})
 	})

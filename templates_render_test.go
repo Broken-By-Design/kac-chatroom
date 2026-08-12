@@ -20,6 +20,7 @@ func TestTemplatesRender(t *testing.T) {
 		"movie.html",
 		"movie_list.html",
 		"gamble.html",
+		"video_search.html",
 		"pain.html",
 	}
 	for _, name := range cases {

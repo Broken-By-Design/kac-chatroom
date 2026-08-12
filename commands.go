@@ -96,7 +96,7 @@ func runsText(node any) string {
 }
 
 // streamResolveSem caps concurrent yt-dlp subprocesses to protect the host's
-// RAM/CPU from spikes when several /video picks resolve at once.
+// RAM/CPU from spikes when several video streams resolve at once.
 var streamResolveSem = make(chan struct{}, 2)
 
 // resolveVideoStreamURL uses yt-dlp in simulate mode to fetch a direct,
@@ -112,7 +112,7 @@ func resolveVideoStreamURL(videoID string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, ytdlp, "-g", "--no-warnings",
-		"-f", "best[height<=720]/best",
+		"-f", "best[height<=1080]/best",
 		"https://www.youtube.com/watch?v="+videoID)
 	out, err := cmd.Output()
 	if err != nil {
@@ -126,37 +126,6 @@ func resolveVideoStreamURL(videoID string) string {
 }
 
 func parseCommand(message, nickname, timestamp string) {
-	if strings.HasPrefix(message, "/video ") {
-		query := strings.TrimPrefix(message, "/video ")
-		if query == "" {
-			msg := html.EscapeString(nickname) + ", Please include a video search term"
-			emitChatMessage(map[string]any{"message": msg, "nickname": "KAC-Bot", "timestamp": timestamp, "system": true})
-			addChatlogEntry(msg, "KAC-Bot", timestamp, "system", "")
-			return
-		}
-		results := searchVideos(query)
-		if len(results) == 0 {
-			msg := html.EscapeString(fmt.Sprintf("I couldn't find any videos for %s", query))
-			emitChatMessage(map[string]any{"message": msg, "nickname": "KAC-Bot", "timestamp": timestamp, "system": true})
-			addChatlogEntry(msg, "KAC-Bot", timestamp, "system", "")
-			return
-		}
-		if len(results) > 4 {
-			results = results[:4]
-		}
-		state.setPendingVideoSelections(nickname, results)
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "%s, here are some videos for %s:\n", html.EscapeString(nickname), html.EscapeString(query))
-		for i, r := range results {
-			fmt.Fprintf(&sb, "%d. %s - %s\n", i+1, html.EscapeString(r.Title), html.EscapeString(r.Channel))
-		}
-		sb.WriteString("Reply with a number to play one.")
-		msg := sb.String()
-		emitChatMessage(map[string]any{"message": msg, "nickname": "KAC-Bot", "timestamp": timestamp, "system": true})
-		addChatlogEntry(msg, "KAC-Bot", timestamp, "system", "")
-		return
-	}
-
 	if strings.HasPrefix(message, "/whitman") {
 		data, err := os.ReadFile("Whitman/JAMES!!!.png")
 		if err != nil {

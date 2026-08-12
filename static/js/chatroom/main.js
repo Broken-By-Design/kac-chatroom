@@ -60,12 +60,10 @@ document.addEventListener("DOMContentLoaded", function () {
                         try {
                             info = JSON.parse(entry.message);
                         } catch (e) {}
-                        ui.addVideoMessage(
-                            info.url || "",
+                        ui.addMessage(
+                            ((info.label || "") + " " + (info.title || "") + " " + (info.url || "")).trim(),
                             entry.nickname,
-                            entry.timestamp,
-                            info.label,
-                            info.title
+                            entry.timestamp
                         );
                         requestAnimationFrame(resolve);
                     });
@@ -191,6 +189,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
         if (ui.input.value === "/video") {
             cloakURI("tutors");
+            ui.input.value = "";
+            return;
+        }
+
+        if (ui.input.value === "/videos") {
+            cloakURI("video-search-d6eca0");
             ui.input.value = "";
             return;
         }

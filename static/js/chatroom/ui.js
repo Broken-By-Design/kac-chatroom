@@ -269,48 +269,6 @@ var ChatApp = window.ChatApp || {};
         scrollToBottom(false, dynamicThreshold);
     }
 
-    function addVideoMessage(url, nickname, timestamp, label, title) {
-        if (!url || !nickname || !timestamp) return;
-
-        // Don't add public messages when in DM view
-        if (activeDMUser) return;
-
-        const own = isOwnMessage(nickname);
-        const { item, body } = makeRow(nickname, timestamp, own);
-
-        const text = document.createElement("div");
-        text.className = "msg-text";
-
-        if (label) {
-            const span = document.createElement("span");
-            span.innerHTML = HtmlSanitizer.SanitizeHtml(label);
-            text.appendChild(span);
-            text.appendChild(document.createTextNode(" "));
-        }
-
-        const link = document.createElement("a");
-        link.href = url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = title || "Open video";
-        text.appendChild(link);
-
-        const video = document.createElement("video");
-        video.controls = true;
-        video.playsInline = true;
-        video.style.display = "block";
-        video.style.width = "100%";
-        video.src = url;
-        text.appendChild(video);
-
-        body.appendChild(text);
-        messages.appendChild(item);
-
-        const elementHeight = item.offsetHeight;
-        const dynamicThreshold = elementHeight + 200;
-        scrollToBottom(false, dynamicThreshold);
-    }
-
     function addImageMessage(id, nickname, timestamp) {
         // Don't add public messages when in DM view
         if (activeDMUser) return;
@@ -747,7 +705,6 @@ var ChatApp = window.ChatApp || {};
         triggerCrash: triggerCrash,
 
         addMessage: addMessage,
-        addVideoMessage: addVideoMessage,
         addHighlightedMessage: addHighlightedMessage,
         addSystemMessage: addSystemMessage,
         addImageMessage: addImageMessage,
