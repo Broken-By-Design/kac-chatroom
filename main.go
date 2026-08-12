@@ -289,6 +289,14 @@ func setupRoutes(app *fiber.App) {
 		return c.JSON(searchVideos(q))
 	})
 
+	app.Get("/api/video/stream/:id", func(c *fiber.Ctx) error {
+		data := resolveVideoStreamInfo(c.Params("id"))
+		if data == nil {
+			return c.JSON(fiber.Map{})
+		}
+		return c.JSON(data)
+	})
+
 	app.Get("/get_stream/:fid", func(c *fiber.Ctx) error {
 		fid := c.Params("fid")
 		resp, err := http.Get(fmt.Sprintf("https://feb.superstudies.site/api/febbox/links?shareKey=%s&fid=%s", shareKey, fid))

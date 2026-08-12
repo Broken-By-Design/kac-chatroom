@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -91,6 +93,61 @@ func runsText(node any) string {
 		}
 	}
 	return sb.String()
+}
+
+// streamResolveSem caps concurrent yt-dlp subprocesses to protect the host's
+// RAM/CPU from spikes when several video streams resolve at once.
+var streamResolveSem = make(chan struct{}, 2)
+
+// resolveVideoStreamInfo uses yt-dlp in simulate mode to fetch direct,
+// time-limited stream URLs for a video. Nothing is downloaded or stored.
+//
+// It prefers a 1080p H.264 video-only DASH stream paired with the best m4a
+// audio, which the client muxes via MediaSource. YouTube no longer offers
+// combined (video+audio) formats above 360p, so a "single" 360p URL is
+// returned as a fallback when no DASH pair is available.
+func resolveVideoStreamInfo(videoID string) map[string]any {
+	streamResolveSem <- struct{}{}
+	defer func() { <-streamResolveSem }()
+
+	ytdlp, err := exec.LookPath("yt-dlp")
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ytdlp, "-j", "--no-warnings",
+		"-f", "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best",
+		"https://www.youtube.com/watch?v="+videoID)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var info struct {
+		URL              string `json:"url"`
+		RequestedFormats []struct {
+			URL      string `json:"url"`
+			VCodec   string `json:"vcodec"`
+			ACodec   string `json:"acodec"`
+			FormatID string `json:"format_id"`
+		} `json:"requested_formats"`
+	}
+	if json.Unmarshal(out, &info) != nil {
+		return nil
+	}
+	if len(info.RequestedFormats) == 2 {
+		v, a := info.RequestedFormats[0], info.RequestedFormats[1]
+		return map[string]any{
+			"video":  v.URL,
+			"audio":  a.URL,
+			"vcodec": v.VCodec,
+			"acodec": a.ACodec,
+		}
+	}
+	if info.URL != "" && strings.Contains(info.URL, "googlevideo.com") {
+		return map[string]any{"single": info.URL}
+	}
+	return nil
 }
 
 func parseCommand(message, nickname, timestamp string) {
