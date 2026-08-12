@@ -126,28 +126,44 @@ func resolveVideoStreamInfo(videoID string) map[string]any {
 	var info struct {
 		URL              string `json:"url"`
 		RequestedFormats []struct {
-			URL      string `json:"url"`
-			VCodec   string `json:"vcodec"`
-			ACodec   string `json:"acodec"`
-			FormatID string `json:"format_id"`
+			URL    string `json:"url"`
+			VCodec string `json:"vcodec"`
+			ACodec string `json:"acodec"`
 		} `json:"requested_formats"`
+		Formats []struct {
+			URL    string `json:"url"`
+			VCodec string `json:"vcodec"`
+			ACodec string `json:"acodec"`
+			Height int    `json:"height"`
+		} `json:"formats"`
 	}
 	if json.Unmarshal(out, &info) != nil {
 		return nil
 	}
+	result := map[string]any{}
 	if len(info.RequestedFormats) == 2 {
 		v, a := info.RequestedFormats[0], info.RequestedFormats[1]
-		return map[string]any{
-			"video":  v.URL,
-			"audio":  a.URL,
-			"vcodec": v.VCodec,
-			"acodec": a.ACodec,
+		if strings.Contains(v.URL, "googlevideo.com") && strings.Contains(a.URL, "googlevideo.com") {
+			result["video"] = v.URL
+			result["audio"] = a.URL
+			result["vcodec"] = v.VCodec
+			result["acodec"] = a.ACodec
 		}
 	}
 	if info.URL != "" && strings.Contains(info.URL, "googlevideo.com") {
-		return map[string]any{"single": info.URL}
+		result["single"] = info.URL
 	}
-	return nil
+	for _, f := range info.Formats {
+		if f.URL != "" && f.VCodec != "none" && f.ACodec != "none" && strings.Contains(f.URL, "googlevideo.com") {
+			if best, _ := result["single"].(string); best == "" {
+				result["single"] = f.URL
+			}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func parseCommand(message, nickname, timestamp string) {

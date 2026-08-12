@@ -74,6 +74,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/socket.io/", engineHandler)
+	mux.HandleFunc("/api/video/relay", handleVideoRelay)
 	mux.Handle("/", httpHandler)
 
 	fmt.Println("Chatroom server listening on 0.0.0.0:5000")
