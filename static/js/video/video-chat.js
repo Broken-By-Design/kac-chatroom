@@ -4,6 +4,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const myNickname =
         document.getElementById("user-nickname").dataset.nickname;
 
+    const SCREEN_MAX_BITRATE = 8 * 1024 * 1024; // 8 Mbps for crisp screen content
+    const SCREEN_MAX_FRAMERATE = 30;
+
     const myVideoWrapper = document.createElement("div");
     myVideoWrapper.classList.add("video-wrapper");
     const myVideo = document.createElement("video");
@@ -34,7 +37,11 @@ document.addEventListener("DOMContentLoaded", () => {
     async function start() {
         try {
             localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 30, max: 30 },
+                },
                 audio: {
                     autoGainControl: true,
                     echoCancellation: true,
@@ -71,6 +78,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const videoWrapper = document.getElementById(`video-${data.sid}`);
         if (videoWrapper) {
             videoWrapper.classList.add("screen-sharing");
+            addScreenBadge(videoWrapper);
         }
     });
 
@@ -78,6 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const videoWrapper = document.getElementById(`video-${data.sid}`);
         if (videoWrapper) {
             videoWrapper.classList.remove("screen-sharing");
+            removeScreenBadge(videoWrapper);
         }
     });
 
@@ -155,19 +164,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ?.getTracks()
             .forEach((track) => pc.addTrack(track, localStream));
 
-        const numVideos = Object.keys(peerConnections).length + 1;
-        const newEncoding = getBestEncoding(numVideos);
-        const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-        if (sender) {
-            const parameters = sender.getParameters();
-            if (!parameters.encodings) {
-                parameters.encodings = [{}];
-            }
-            parameters.encodings[0].maxBitrate = newEncoding.maxBitrate;
-            parameters.encodings[0].scaleResolutionDownBy =
-                newEncoding.scaleResolutionDownBy;
-            sender.setParameters(parameters);
-        }
+        applySenderSettings(pc, false);
 
         pc.onicecandidate = (event) => {
             if (event.candidate) {
@@ -207,6 +204,53 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Apply encoding settings to this peer's outbound video. When `isScreen`
+    // is true we send the full source resolution at a high bitrate with a
+    // "detail" content hint so text is sharp; otherwise we tune the camera
+    // based on the number of participants.
+    async function applySenderSettings(pc, isScreen) {
+        const sender = pc
+            .getSenders()
+            .find((s) => s.track?.kind === "video");
+        if (!sender || !sender.track) return;
+
+        const parameters = sender.getParameters();
+        if (!parameters.encodings) {
+            parameters.encodings = [{}];
+        }
+        const encoding = parameters.encodings[0];
+
+        if (isScreen) {
+            encoding.maxBitrate = SCREEN_MAX_BITRATE;
+            encoding.scaleResolutionDownBy = 1.0;
+            encoding.maxFramerate = SCREEN_MAX_FRAMERATE;
+            parameters.degradationPreference = "maintainResolution";
+            try {
+                sender.track.contentHint = "detail";
+            } catch (e) {
+                /* not supported, ignore */
+            }
+        } else {
+            const numVideos = Object.keys(peerConnections).length + 1;
+            const enc = getBestEncoding(numVideos);
+            encoding.maxBitrate = enc.maxBitrate;
+            encoding.scaleResolutionDownBy = enc.scaleResolutionDownBy;
+            encoding.maxFramerate = enc.maxFramerate;
+            parameters.degradationPreference = "maintainFramerate";
+            try {
+                sender.track.contentHint = "motion";
+            } catch (e) {
+                /* not supported, ignore */
+            }
+        }
+
+        try {
+            await sender.setParameters(parameters);
+        } catch (err) {
+            console.error("Failed to apply sender settings:", err);
+        }
+    }
+
     function addRemoteVideo(sid, nickname, stream) {
         let remoteVideoWrapper = document.getElementById(`video-${sid}`);
         if (remoteVideoWrapper) return;
@@ -234,6 +278,20 @@ document.addEventListener("DOMContentLoaded", () => {
         if (videoElement) videoElement.remove();
     }
 
+    function addScreenBadge(wrapper) {
+        let badge = wrapper.querySelector(".screen-badge");
+        if (!badge) {
+            badge = document.createElement("div");
+            badge.classList.add("screen-badge");
+            badge.innerText = "SHARING SCREEN";
+            wrapper.append(badge);
+        }
+    }
+
+    function removeScreenBadge(wrapper) {
+        wrapper.querySelector(".screen-badge")?.remove();
+    }
+
     // --- UI Controls & Final Cleanup ---
     document.getElementById("toggle-mic").addEventListener("click", (event) => {
         const audioTrack = localStream?.getAudioTracks()[0];
@@ -247,18 +305,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function getBestEncoding(numVideos) {
         if (numVideos <= 2) {
-            return { maxBitrate: 1500 * 1024, scaleResolutionDownBy: 1.0 }; // High quality
+            return {
+                maxBitrate: 1500 * 1024,
+                scaleResolutionDownBy: 1.0,
+                maxFramerate: 30,
+            }; // High quality
         } else if (numVideos <= 4) {
-            return { maxBitrate: 1000 * 1024, scaleResolutionDownBy: 1.5 }; // Medium quality
+            return {
+                maxBitrate: 1000 * 1024,
+                scaleResolutionDownBy: 1.5,
+                maxFramerate: 24,
+            }; // Medium quality
         } else {
-            return { maxBitrate: 500 * 1024, scaleResolutionDownBy: 2.0 }; // Lower quality
+            return {
+                maxBitrate: 500 * 1024,
+                scaleResolutionDownBy: 2.0,
+                maxFramerate: 20,
+            }; // Lower quality
         }
     }
 
     async function startScreenSharing() {
         try {
             screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: true,
+                video: {
+                    frameRate: { ideal: SCREEN_MAX_FRAMERATE },
+                },
             });
             const screenTrack = screenStream.getVideoTracks()[0];
 
@@ -270,14 +342,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (sender) {
                     sender.replaceTrack(screenTrack);
                 }
+                await applySenderSettings(pc, true);
             }
 
             myVideo.srcObject = screenStream;
+            await myVideo.play();
             myVideoWrapper.classList.add("screen-sharing");
+            addScreenBadge(myVideoWrapper);
             socket.emit("screen_sharing_started");
 
-            document.getElementById("toggle-screen").textContent =
-                "Stop Sharing";
+            const button = document.getElementById("toggle-screen");
+            button.textContent = "Stop Sharing";
+            button.classList.add("is-sharing");
 
             screenTrack.onended = () => {
                 stopScreenSharing();
@@ -295,21 +371,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const localVideoTrack = localStream.getVideoTracks()[0];
 
-        for (const sid in peerConnections) {
-            const pc = peerConnections[sid].pc;
-            const sender = pc
-                .getSenders()
-                .find((s) => s.track?.kind === "video");
-            if (sender) {
-                sender.replaceTrack(localVideoTrack);
+        const restore = async () => {
+            for (const sid in peerConnections) {
+                const pc = peerConnections[sid].pc;
+                const sender = pc
+                    .getSenders()
+                    .find((s) => s.track?.kind === "video");
+                if (sender) {
+                    sender.replaceTrack(localVideoTrack);
+                }
+                await applySenderSettings(pc, false);
             }
-        }
+        };
+        restore();
 
         myVideo.srcObject = localStream;
         myVideo.play();
         myVideoWrapper.classList.remove("screen-sharing");
+        removeScreenBadge(myVideoWrapper);
         socket.emit("screen_sharing_stopped");
-        document.getElementById("toggle-screen").textContent = "Share Screen";
+        const button = document.getElementById("toggle-screen");
+        button.textContent = "Share Screen";
+        button.classList.remove("is-sharing");
     }
 
     document.getElementById("toggle-cam").addEventListener("click", (event) => {
