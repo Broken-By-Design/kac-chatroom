@@ -194,7 +194,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         if (ui.input.value === "/videos") {
-            cloakURI("video-search-d6eca0");
+            openCloakedTab(location.origin + "/video-search-d6eca0");
             ui.input.value = "";
             return;
         }
