@@ -91,6 +91,16 @@ var ChatApp = window.ChatApp || {};
     }
 
     /**
+     * Sends a non-image file directly, without compression.
+     * Used for drag & drop of arbitrary files.
+     */
+    function sendFileDirect(file, timestamp, question = null) {
+        return file.arrayBuffer().then((buffer) =>
+            chunkAndEmit(buffer, file.name, timestamp, question)
+        );
+    }
+
+    /**
      * Sets up all the event listeners for incoming socket events.
      * This function should be called once when the application starts.
      */
@@ -160,7 +170,15 @@ var ChatApp = window.ChatApp || {};
 
         socket.on("chat_message", (msg) => {
             // Delegate UI updates to the UI module
-            if (msg.highlight) {
+            if (msg.video) {
+                ui.addVideoMessage(
+                    msg.video,
+                    msg.nickname,
+                    msg.timestamp,
+                    msg.message,
+                    msg.title
+                );
+            } else if (msg.highlight) {
                 ui.addHighlightedMessage(
                     msg.message,
                     msg.nickname,
@@ -293,6 +311,7 @@ var ChatApp = window.ChatApp || {};
 
         // Expose the public functions.
         compressAndSendImage: compressAndSendImage,
+        sendFileDirect: sendFileDirect,
         initializeListeners: initializeListeners,
         sendPrivateMessage: sendPrivateMessage,
     };

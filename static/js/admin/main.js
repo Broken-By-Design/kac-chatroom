@@ -28,6 +28,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const reloadAllUsersBtn = document.getElementById("reloadAllUsersBtn");
     const refreshBanListBtn = document.getElementById("refreshBanListBtn");
     const resetBotHistoryBtn = document.getElementById("resetBotHistoryBtn");
+    const clearCacheBtn = document.getElementById("clearCacheBtn");
 
     // Troll Commands
     const jumpscareBtn = document.getElementById("jumpscareBtn");
@@ -303,6 +304,10 @@ document.addEventListener("DOMContentLoaded", function () {
         });
         performActionNoUser("reset-bot-memory");
     });
+
+    clearCacheBtn.addEventListener("click", () =>
+        performActionNoUser("clear-cache")
+    );
 
     // Initial load
     fetchAndRenderUsers();

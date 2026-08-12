@@ -156,6 +156,22 @@ var ChatApp = window.ChatApp || {};
             return embedIframe;
         }
 
+        const ytRegex =
+            /(?:<a href=")?(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{6,20})/i;
+        const ytMatch = message.match(ytRegex);
+
+        if (ytMatch && ytMatch[1]) {
+            return `${message}<br><iframe width="100%" height="315" src="https://www.youtube.com/embed/${ytMatch[1]}" title="YouTube video player" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>`;
+        }
+
+        const streamRegex =
+            /https?:\/\/[^\s"'<>]+googlevideo\.com\/videoplayback[^\s"'<>]*/i;
+        const streamMatch = message.match(streamRegex);
+
+        if (streamMatch && streamMatch[0]) {
+            return `${message}<br><video controls playsinline src="${streamMatch[0]}"></video>`;
+        }
+
         const videoRegex = /(https?:\/\/[^\s]+?\.(mp4|webm|ogg))/i;
         const videoMatch = message.match(videoRegex);
 
@@ -243,12 +259,51 @@ var ChatApp = window.ChatApp || {};
         const text = document.createElement("div");
         text.className = "msg-text";
 
-        const b = document.createElement("b");
-        b.textContent = nickname + ": ";
-        text.appendChild(b);
-        text.appendChild(document.createTextNode(decodeEntities(message)));
+        text.innerHTML = `<b>${HtmlSanitizer.SanitizeHtml(nickname)}:</b> ${HtmlSanitizer.SanitizeHtml(message)}`;
 
         item.appendChild(text);
+        messages.appendChild(item);
+
+        const elementHeight = item.offsetHeight;
+        const dynamicThreshold = elementHeight + 200;
+        scrollToBottom(false, dynamicThreshold);
+    }
+
+    function addVideoMessage(url, nickname, timestamp, label, title) {
+        if (!url || !nickname || !timestamp) return;
+
+        // Don't add public messages when in DM view
+        if (activeDMUser) return;
+
+        const own = isOwnMessage(nickname);
+        const { item, body } = makeRow(nickname, timestamp, own);
+
+        const text = document.createElement("div");
+        text.className = "msg-text";
+
+        if (label) {
+            const span = document.createElement("span");
+            span.innerHTML = HtmlSanitizer.SanitizeHtml(label);
+            text.appendChild(span);
+            text.appendChild(document.createTextNode(" "));
+        }
+
+        const link = document.createElement("a");
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = title || "Open video";
+        text.appendChild(link);
+
+        const video = document.createElement("video");
+        video.controls = true;
+        video.playsInline = true;
+        video.style.display = "block";
+        video.style.width = "100%";
+        video.src = url;
+        text.appendChild(video);
+
+        body.appendChild(text);
         messages.appendChild(item);
 
         const elementHeight = item.offsetHeight;
@@ -692,6 +747,7 @@ var ChatApp = window.ChatApp || {};
         triggerCrash: triggerCrash,
 
         addMessage: addMessage,
+        addVideoMessage: addVideoMessage,
         addHighlightedMessage: addHighlightedMessage,
         addSystemMessage: addSystemMessage,
         addImageMessage: addImageMessage,

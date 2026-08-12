@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -102,6 +103,10 @@ func adminRequired(c *fiber.Ctx) error {
 }
 
 func setupRoutes(app *fiber.App) {
+	app.Use("/static", func(c *fiber.Ctx) error {
+		c.Set("Cache-Control", "no-cache")
+		return c.Next()
+	})
 	app.Static("/static", "./static")
 
 	app.Use(func(c *fiber.Ctx) error {
@@ -616,6 +621,17 @@ func setupRoutes(app *fiber.App) {
 		state.resetPromptHistory()
 		fmt.Println("In-memory AI prompt history has been cleared.")
 		return c.JSON(fiber.Map{"message": "Bot's memory has been successfully reset."})
+	})
+
+	app.Post("/admin/clear-cache", adminRequired, func(c *fiber.Ctx) error {
+		images := clearImageHashCache()
+		pending := state.clearPendingVideoSelections()
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		msg := fmt.Sprintf("Cleared %d image-hash cache entries and %d pending video selections. Heap: %.1f MB, System: %.1f MB.",
+			images, pending, float64(m.HeapAlloc)/1024/1024, float64(m.Sys)/1024/1024)
+		fmt.Println(msg)
+		return c.JSON(fiber.Map{"message": msg})
 	})
 
 	app.Post("/admin/pinned-message", adminRequired, func(c *fiber.Ctx) error {

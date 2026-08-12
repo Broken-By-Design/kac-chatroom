@@ -19,6 +19,13 @@ type UserOffense struct {
 	LastOffense time.Time
 }
 
+// VideoSearchResult is a single YouTube hit returned by the /video command.
+type VideoSearchResult struct {
+	Title   string
+	Channel string
+	VideoID string
+}
+
 // State is the thread-safe equivalent of utils/globals.py.
 type State struct {
 	mu sync.Mutex
@@ -39,6 +46,7 @@ type State struct {
 	bannedIPsCache        map[string]*time.Time
 	videoChatUsers        map[string]string // sid -> nickname
 	screenSharers         map[string]bool   // sid
+	pendingVideoSelections map[string][]VideoSearchResult
 }
 
 var state = &State{}
@@ -62,6 +70,7 @@ func initState() {
 	state.bannedIPsCache = map[string]*time.Time{}
 	state.videoChatUsers = map[string]string{}
 	state.screenSharers = map[string]bool{}
+	state.pendingVideoSelections = map[string][]VideoSearchResult{}
 }
 
 func (s *State) getOnlineUsers() []string {
@@ -99,6 +108,34 @@ func (s *State) getMutedUser(nickname string) (*MuteDetails, bool) {
 	defer s.mu.Unlock()
 	d, ok := s.mutedUserDetails[nickname]
 	return d, ok
+}
+
+// setPendingVideoSelections stores the /video result list a user can pick from.
+func (s *State) setPendingVideoSelections(nickname string, results []VideoSearchResult) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pendingVideoSelections[nickname] = results
+}
+
+// consumePendingVideoSelections returns and clears any pending /video picks.
+func (s *State) consumePendingVideoSelections(nickname string) ([]VideoSearchResult, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	results, ok := s.pendingVideoSelections[nickname]
+	if ok {
+		delete(s.pendingVideoSelections, nickname)
+	}
+	return results, ok
+}
+
+// clearPendingVideoSelections drops all in-memory /video selection state and
+// returns how many selections were cleared.
+func (s *State) clearPendingVideoSelections() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.pendingVideoSelections)
+	s.pendingVideoSelections = map[string][]VideoSearchResult{}
+	return n
 }
 
 func (s *State) recordSpam(nickname string, now time.Time) (int, time.Time) {

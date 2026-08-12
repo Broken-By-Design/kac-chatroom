@@ -54,6 +54,22 @@ document.addEventListener("DOMContentLoaded", function () {
                         requestAnimationFrame(resolve);
                     });
                     renderComplete.push(p);
+                } else if (entry.type === "video") {
+                    const p = new Promise((resolve) => {
+                        let info = {};
+                        try {
+                            info = JSON.parse(entry.message);
+                        } catch (e) {}
+                        ui.addVideoMessage(
+                            info.url || "",
+                            entry.nickname,
+                            entry.timestamp,
+                            info.label,
+                            info.title
+                        );
+                        requestAnimationFrame(resolve);
+                    });
+                    renderComplete.push(p);
                 } else if (entry.type === "highlight") {
                     const p = new Promise((resolve) => {
                         ui.addHighlightedMessage(
@@ -271,6 +287,54 @@ document.addEventListener("DOMContentLoaded", function () {
     // Handle image upload flow
     document.getElementById("openFile").addEventListener("click", function () {
         document.getElementById("fileInput").click();
+    });
+
+    // Drag & drop for files and images
+    function handleDroppedFiles(files) {
+        for (const file of files) {
+            if (file.type.startsWith("image/")) {
+                ui.openImageOptions(file);
+            } else {
+                ChatApp.socket.sendFileDirect(
+                    file,
+                    new Date().toISOString()
+                );
+            }
+        }
+    }
+
+    let dragDepth = 0;
+    function setDragActive(active) {
+        document.body.classList.toggle("drag-active", active);
+    }
+
+    window.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        dragDepth++;
+        setDragActive(true);
+    });
+
+    window.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+    });
+
+    window.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        dragDepth--;
+        if (dragDepth <= 0) {
+            dragDepth = 0;
+            setDragActive(false);
+        }
+    });
+
+    window.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dragDepth = 0;
+        setDragActive(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleDroppedFiles(e.dataTransfer.files);
+        }
     });
 
     // Handle DM button click

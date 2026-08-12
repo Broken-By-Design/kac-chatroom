@@ -92,6 +92,7 @@ body {
 .msg-body {
     display: flex;
     flex-direction: column;
+    width: max-content;
     max-width: min(640px, 84%);
     min-width: 0;
 }
@@ -129,7 +130,7 @@ body {
     border-radius: 4px 14px 14px 14px;
     word-wrap: break-word;
     overflow-wrap: break-word;
-    white-space: normal;
+    white-space: pre-wrap;
     max-width: 100%;
 }
 
@@ -205,6 +206,7 @@ body {
 
 .msg-img-link {
     display: inline-block;
+    align-self: flex-start;
     border-radius: 12px;
     overflow: hidden;
     border: 1px solid var(--border);
@@ -603,6 +605,21 @@ body {
 }
 
 /* ---------- Jumpscare ---------- */
+
+body.drag-active::after {
+    content: "Drop to send";
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    display: grid;
+    place-items: center;
+    background: rgba(11, 14, 20, 0.7);
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--accent);
+    pointer-events: none;
+    border: 3px dashed var(--accent);
+}
 
 #jumpscare-image {
     position: fixed;

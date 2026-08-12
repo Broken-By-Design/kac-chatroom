@@ -202,6 +202,16 @@ func findImageIDByHash(sum [32]byte) string {
 	return ""
 }
 
+// clearImageHashCache empties the in-memory image-hash dedup cache and returns
+// how many entries were dropped. It is rebuilt lazily on the next upload.
+func clearImageHashCache() int {
+	imageHashMu.Lock()
+	defer imageHashMu.Unlock()
+	n := len(imageHashes)
+	imageHashes = map[string]string{}
+	return n
+}
+
 func cacheImageID(sum [32]byte, id string) {
 	imageHashMu.Lock()
 	defer imageHashMu.Unlock()
