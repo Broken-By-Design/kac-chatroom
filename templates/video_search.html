@@ -309,7 +309,7 @@
                 player.innerHTML = "";
                 playerTitle.textContent = r.title;
                 playerWrap.classList.remove("hidden");
-                setStatus("");
+                setStatus("Loading stream...");
 
                 try {
                     const videoEl = document.createElement("video");
@@ -321,6 +321,7 @@
                         await playStreamPair(videoEl, data.video, data.audio, data.vcodec, data.acodec);
                     } else if (data.single && data.single.indexOf("googlevideo.com") !== -1) {
                         videoEl.src = data.single;
+                        videoEl.addEventListener("canplay", () => setStatus(""), { once: true });
                         videoEl.play().catch(() => {});
                     } else {
                         throw new Error("no stream");
@@ -332,46 +333,131 @@
                         '?rel=0" title="' +
                         r.title +
                         '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>';
+                    setStatus("");
                 }
             }
 
+            function concatBytes(a, b) {
+                const out = new Uint8Array(a.length + b.length);
+                out.set(a, 0);
+                out.set(b, a.length);
+                return out;
+            }
+
+            function appendBufferAsync(sb, data) {
+                return new Promise((res, rej) => {
+                    const onEnd = () => {
+                        sb.removeEventListener("updateend", onEnd);
+                        res();
+                    };
+                    sb.addEventListener("updateend", onEnd);
+                    try {
+                        sb.appendBuffer(data);
+                    } catch (e) {
+                        sb.removeEventListener("updateend", onEnd);
+                        rej(e);
+                    }
+                });
+            }
+
+            // Reads a streamed fMP4 body and appends complete boxes to the
+            // MediaSource buffer as they arrive, so playback can start after the
+            // first segment instead of waiting for the whole file.
+            async function appendBoxes(sb, body, onFirstSegment) {
+                const reader = body.getReader();
+                let buf = new Uint8Array(0);
+                let init = new Uint8Array(0);
+                let gotInit = false;
+                let pending = null;
+                let firstDone = false;
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (value) buf = concatBytes(buf, value);
+                    while (buf.length >= 8) {
+                        let size =
+                            (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+                        if (size === 1) {
+                            if (buf.length < 16) break;
+                            size =
+                                (((buf[8] << 24) | (buf[9] << 16) | (buf[10] << 8) | buf[11]) >>> 0) *
+                                    4294967296 +
+                                (((buf[12] << 24) | (buf[13] << 16) | (buf[14] << 8) | buf[15]) >>> 0);
+                            if (buf.length < 16 + (size - 16)) break;
+                        } else if (size === 0) {
+                            size = buf.length;
+                        }
+                        if (buf.length < size) break;
+                        const box = buf.subarray(0, size);
+                        buf = buf.subarray(size);
+                        const type = String.fromCharCode(box[4], box[5], box[6], box[7]);
+                        if (!gotInit) {
+                            if (type === "moof") {
+                                gotInit = true;
+                                await appendBufferAsync(sb, init);
+                                init = null;
+                                pending = box;
+                            } else {
+                                init = concatBytes(init, box);
+                            }
+                        } else if (type === "moof") {
+                            pending = box;
+                        } else if (type === "mdat") {
+                            const seg = pending ? concatBytes(pending, box) : box;
+                            pending = null;
+                            await appendBufferAsync(sb, seg);
+                            if (!firstDone) {
+                                firstDone = true;
+                                if (onFirstSegment) onFirstSegment();
+                            }
+                        }
+                    }
+                    if (done) break;
+                }
+                if (pending) await appendBufferAsync(sb, pending);
+            }
+
             async function playStreamPair(videoEl, videoUrl, audioUrl, vcodec, acodec) {
-                const mime =
-                    'video/mp4; codecs="' +
-                    (vcodec || "avc1.640028") +
-                    ", " +
-                    (acodec || "mp4a.40.2") +
-                    '"';
-                const relay = (u) =>
-                    "/api/video/relay?url=" + encodeURIComponent(u);
+                const relay = (u) => "/api/video/relay?url=" + encodeURIComponent(u);
                 const ms = new MediaSource();
                 videoEl.src = URL.createObjectURL(ms);
                 await new Promise((res, rej) => {
                     ms.addEventListener("sourceopen", res, { once: true });
                     ms.addEventListener("error", rej, { once: true });
                 });
-                const sb = ms.addSourceBuffer(mime);
-                const [vb, ab] = await Promise.all([
-                    fetch(relay(videoUrl), { headers: { Range: "bytes=0-" } }).then((r) => {
-                        if (!r.ok) throw new Error("video " + r.status);
-                        return r.arrayBuffer();
+                const vSB = ms.addSourceBuffer(
+                    'video/mp4; codecs="' + (vcodec || "avc1.640028") + '"'
+                );
+                const aSB = ms.addSourceBuffer(
+                    'audio/mp4; codecs="' + (acodec || "mp4a.40.2") + '"'
+                );
+
+                let vFirst = false;
+                let aFirst = false;
+                const maybeStart = () => {
+                    if (vFirst && aFirst) {
+                        setStatus("");
+                        videoEl.play().catch(() => {});
+                    }
+                };
+
+                const vResp = await fetch(relay(videoUrl));
+                if (!vResp.ok) throw new Error("video " + vResp.status);
+                const aResp = await fetch(relay(audioUrl));
+                if (!aResp.ok) throw new Error("audio " + aResp.status);
+                if (!vResp.body || !aResp.body) throw new Error("no streaming");
+
+                await Promise.all([
+                    appendBoxes(vSB, vResp.body, () => {
+                        vFirst = true;
+                        maybeStart();
                     }),
-                    fetch(relay(audioUrl), { headers: { Range: "bytes=0-" } }).then((r) => {
-                        if (!r.ok) throw new Error("audio " + r.status);
-                        return r.arrayBuffer();
+                    appendBoxes(aSB, aResp.body, () => {
+                        aFirst = true;
+                        maybeStart();
                     }),
                 ]);
-                await new Promise((res, rej) => {
-                    sb.addEventListener("updateend", res, { once: true });
-                    sb.appendBuffer(vb);
-                });
-                await new Promise((res, rej) => {
-                    sb.addEventListener("updateend", res, { once: true });
-                    sb.appendBuffer(ab);
-                });
-                ms.endOfStream();
-                videoEl.currentTime = 0;
-                videoEl.play().catch(() => {});
+
+                if (ms.readyState === "open") ms.endOfStream();
             }
 
             searchBtn.addEventListener("click", search);
