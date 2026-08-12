@@ -18,6 +18,7 @@ COPY --from=builder /out/chatroom /usr/local/bin/chatroom
 COPY --from=builder /src/templates ./templates
 COPY --from=builder /src/static ./static
 COPY --from=builder /src/jumpscare ./jumpscare
+COPY --from=builder /src/Whitman ./Whitman
 COPY --from=builder /src/ai_personality.txt ./ai_personality.txt
 COPY --from=builder /src/badwords.txt ./badwords.txt
 
