@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -41,6 +42,24 @@ func getRealIP(r *http.Request) string {
 		}
 	}
 	return r.RemoteAddr
+}
+
+// processRSSMB returns the current resident set size (physical RAM used) of
+// this process in MB, read from /proc/self/status on Linux.
+func processRSSMB() float64 {
+	data, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "VmRSS:") {
+			var kb int
+			if _, err := fmt.Sscanf(line, "VmRSS:%d", &kb); err == nil {
+				return float64(kb) / 1024
+			}
+		}
+	}
+	return 0
 }
 
 // addToPromptHistorySafe mirrors utils/helpers.add_to_prompt_history_safe.

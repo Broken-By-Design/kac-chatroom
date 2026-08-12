@@ -309,6 +309,27 @@ document.addEventListener("DOMContentLoaded", function () {
         performActionNoUser("clear-cache")
     );
 
+    // --- Live server memory usage ---
+    const memStats = document.getElementById("memStats");
+
+    const fetchMemStats = async () => {
+        try {
+            const response = await fetch("/admin/mem-stats");
+            if (!response.ok) return;
+            const data = await response.json();
+            memStats.innerHTML = `
+                <div class="mem-stat"><b>${data.rss_mb.toFixed(1)} MB</b><span>Process RSS</span></div>
+                <div class="mem-stat"><b>${data.heap_mb.toFixed(1)} MB</b><span>Go Heap</span></div>
+                <div class="mem-stat"><b>${data.sys_mb.toFixed(1)} MB</b><span>Go Sys</span></div>
+                <div class="mem-stat"><b>${data.goroutines}</b><span>Goroutines</span></div>
+            `;
+        } catch (error) {
+            memStats.textContent = "Unable to load memory stats.";
+        }
+    };
+    fetchMemStats();
+    setInterval(fetchMemStats, 5000);
+
     // Initial load
     fetchAndRenderUsers();
 });

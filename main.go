@@ -634,6 +634,18 @@ func setupRoutes(app *fiber.App) {
 		return c.JSON(fiber.Map{"message": msg})
 	})
 
+	app.Get("/admin/mem-stats", adminRequired, func(c *fiber.Ctx) error {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		return c.JSON(fiber.Map{
+			"heap_mb":    float64(m.HeapAlloc) / 1024 / 1024,
+			"inuse_mb":   float64(m.HeapInuse) / 1024 / 1024,
+			"sys_mb":     float64(m.Sys) / 1024 / 1024,
+			"rss_mb":     processRSSMB(),
+			"goroutines": runtime.NumGoroutine(),
+		})
+	})
+
 	app.Post("/admin/pinned-message", adminRequired, func(c *fiber.Ctx) error {
 		var body struct {
 			Message string `json:"message"`

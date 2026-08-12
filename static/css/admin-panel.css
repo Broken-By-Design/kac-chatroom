@@ -258,3 +258,36 @@ body {
     border-radius: 3px;
     background: #fff;
 }
+
+/* Server status */
+
+.mem-stats {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 0.9rem;
+    color: #333;
+    background: #fff;
+    border: 1px solid #e3e7ef;
+    border-radius: 3px;
+    padding: 0.75rem 1rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.5rem 1rem;
+}
+
+.mem-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.mem-stat b {
+    font-size: 1.05rem;
+    color: #1f3864;
+}
+
+.mem-stat span {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #777;
+}
