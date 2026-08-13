@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -99,6 +100,19 @@ func runsText(node any) string {
 // RAM/CPU from spikes when several video streams resolve at once.
 var streamResolveSem = make(chan struct{}, 2)
 
+// videoStreamCache avoids re-running yt-dlp (a heavy Python process) for the
+// same video within the TTL, so frontend retries are cheap. The cached URLs
+// are time-limited by YouTube (~6h); 30 minutes is a safe refresh window.
+var (
+	videoStreamCacheMu sync.Mutex
+	videoStreamCache   = map[string]videoStreamCacheEntry{}
+)
+
+type videoStreamCacheEntry struct {
+	info    map[string]any
+	expires time.Time
+}
+
 // resolveVideoStreamInfo uses yt-dlp in simulate mode to fetch direct,
 // time-limited stream URLs for a video. Nothing is downloaded or stored.
 //
@@ -106,7 +120,16 @@ var streamResolveSem = make(chan struct{}, 2)
 // audio, which the client muxes via MediaSource. YouTube no longer offers
 // combined (video+audio) formats above 360p, so a "single" 360p URL is
 // returned as a fallback when no DASH pair is available.
-func resolveVideoStreamInfo(videoID string) map[string]any {
+func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
+	videoStreamCacheMu.Lock()
+	if fresh {
+		delete(videoStreamCache, videoID)
+	} else if e, ok := videoStreamCache[videoID]; ok && time.Now().Before(e.expires) {
+		videoStreamCacheMu.Unlock()
+		return e.info
+	}
+	videoStreamCacheMu.Unlock()
+
 	streamResolveSem <- struct{}{}
 	defer func() { <-streamResolveSem }()
 
@@ -114,7 +137,7 @@ func resolveVideoStreamInfo(videoID string) map[string]any {
 	if err != nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, ytdlp, "-j", "--no-warnings",
 		"-f", "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best",
@@ -143,7 +166,10 @@ func resolveVideoStreamInfo(videoID string) map[string]any {
 	result := map[string]any{}
 	if len(info.RequestedFormats) == 2 {
 		v, a := info.RequestedFormats[0], info.RequestedFormats[1]
-		if strings.Contains(v.URL, "googlevideo.com") && strings.Contains(a.URL, "googlevideo.com") {
+		if v.VCodec == "none" && a.VCodec != "none" {
+			v, a = a, v
+		}
+		if v.VCodec != "none" && a.ACodec != "none" && strings.Contains(v.URL, "googlevideo.com") && strings.Contains(a.URL, "googlevideo.com") {
 			result["video"] = v.URL
 			result["audio"] = a.URL
 			result["vcodec"] = v.VCodec
@@ -163,6 +189,9 @@ func resolveVideoStreamInfo(videoID string) map[string]any {
 	if len(result) == 0 {
 		return nil
 	}
+	videoStreamCacheMu.Lock()
+	videoStreamCache[videoID] = videoStreamCacheEntry{info: result, expires: time.Now().Add(30 * time.Minute)}
+	videoStreamCacheMu.Unlock()
 	return result
 }
 

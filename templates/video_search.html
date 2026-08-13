@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Video Search</title>
+        <title>New Tab</title>
         <style>
             :root {
                 --bg: #0b0e14;
@@ -254,11 +254,14 @@
             const playerTitle = document.getElementById("playerTitle");
             const newSearchBtn = document.getElementById("newSearchBtn");
 
+            let currentAbort = null;
+
             function setStatus(text) {
                 statusLine.textContent = text || "";
             }
 
             async function search() {
+                if (currentAbort) currentAbort.abort();
                 const q = searchInput.value.trim();
                 if (!q) return;
                 playerWrap.classList.add("hidden");
@@ -297,44 +300,76 @@
             }
 
             async function play(r) {
+                if (currentAbort) currentAbort.abort();
+                const ac = new AbortController();
+                currentAbort = ac;
                 resultsEl.innerHTML = "";
                 playerWrap.classList.add("hidden");
-                setStatus("Hold on, grabbing a stream...");
-                let data = {};
-                try {
-                    const resp = await fetch("/api/video/stream/" + encodeURIComponent(r.videoId));
-                    if (resp.ok) data = await resp.json();
-                } catch (e) {}
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    if (ac.signal.aborted) return;
+                    setStatus(
+                        attempt === 1
+                            ? "Hold on, grabbing a stream..."
+                            : "Trying again... (" + (attempt - 1) + "/2)"
+                    );
+                    try {
+                        let data = {};
+                        const resp = await fetch(
+                            "/api/video/stream/" +
+                                encodeURIComponent(r.videoId) +
+                                (attempt > 1 ? "?fresh=1" : ""),
+                            { signal: ac.signal }
+                        );
+                        if (resp.ok) data = await resp.json();
 
-                player.innerHTML = "";
+                        player.innerHTML = "";
+                        playerTitle.textContent = r.title;
+                        playerWrap.classList.remove("hidden");
+                        setStatus("Loading stream...");
+
+                        const videoEl = document.createElement("video");
+                        videoEl.controls = true;
+                        videoEl.playsInline = true;
+                        player.appendChild(videoEl);
+
+                        if (data.video && data.audio) {
+                            await playStreamPair(videoEl, data.video, data.audio, data.vcodec, data.acodec, ac.signal);
+                        } else if (data.single && data.single.indexOf("googlevideo.com") !== -1) {
+                            videoEl.src = data.single;
+                            videoEl.play().catch(() => {});
+                            await new Promise((res, rej) => {
+                                const to = setTimeout(() => rej(new Error("timeout")), 30000);
+                                videoEl.addEventListener("canplay", () => {
+                                    clearTimeout(to);
+                                    setStatus("");
+                                    res();
+                                }, { once: true });
+                                videoEl.addEventListener("error", () => {
+                                    clearTimeout(to);
+                                    rej(new Error("stream error"));
+                                }, { once: true });
+                            });
+                        } else {
+                            throw new Error("no stream");
+                        }
+                        return;
+                    } catch (e) {
+                        if (ac.signal.aborted) return;
+                        if (attempt < 3) {
+                            await new Promise((res) => setTimeout(res, attempt * 1500));
+                        }
+                    }
+                }
+                // give up: stream expired or unreachable, so fall back to the embed
+                player.innerHTML =
+                    '<iframe src="https://www.youtube.com/embed/' +
+                    encodeURIComponent(r.videoId) +
+                    '?rel=0" title="' +
+                    r.title +
+                    '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>';
                 playerTitle.textContent = r.title;
                 playerWrap.classList.remove("hidden");
-                setStatus("Loading stream...");
-
-                try {
-                    const videoEl = document.createElement("video");
-                    videoEl.controls = true;
-                    videoEl.playsInline = true;
-                    player.appendChild(videoEl);
-
-                    if (data.video && data.audio) {
-                        await playStreamPair(videoEl, data.video, data.audio, data.vcodec, data.acodec);
-                    } else if (data.single && data.single.indexOf("googlevideo.com") !== -1) {
-                        videoEl.src = data.single;
-                        videoEl.addEventListener("canplay", () => setStatus(""), { once: true });
-                        videoEl.play().catch(() => {});
-                    } else {
-                        throw new Error("no stream");
-                    }
-                } catch (e) {
-                    player.innerHTML =
-                        '<iframe src="https://www.youtube.com/embed/' +
-                        encodeURIComponent(r.videoId) +
-                        '?rel=0" title="' +
-                        r.title +
-                        '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>';
-                    setStatus("");
-                }
+                setStatus("");
             }
 
             function concatBytes(a, b) {
@@ -346,118 +381,196 @@
 
             function appendBufferAsync(sb, data) {
                 return new Promise((res, rej) => {
-                    const onEnd = () => {
+                    let settled = false;
+                    const finish = (err) => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer);
                         sb.removeEventListener("updateend", onEnd);
-                        res();
+                        sb.removeEventListener("error", onErr);
+                        if (err) rej(err);
+                        else res();
                     };
+                    const onEnd = () => finish(null);
+                    const onErr = () => finish(new Error("sourceBuffer error"));
+                    const timer = setTimeout(
+                        () => finish(new Error("append timeout")),
+                        15000
+                    );
                     sb.addEventListener("updateend", onEnd);
+                    sb.addEventListener("error", onErr);
                     try {
                         sb.appendBuffer(data);
                     } catch (e) {
-                        sb.removeEventListener("updateend", onEnd);
-                        rej(e);
+                        finish(e);
                     }
                 });
             }
 
-            // Reads a streamed fMP4 body and appends complete boxes to the
-            // MediaSource buffer as they arrive, so playback can start after the
-            // first segment instead of waiting for the whole file.
-            async function appendBoxes(sb, body, onFirstSegment) {
-                const reader = body.getReader();
+            function bufferedAhead(videoEl) {
+                const t = videoEl.currentTime;
+                for (let i = 0; i < videoEl.buffered.length; i++) {
+                    if (t >= videoEl.buffered.start(i) && t <= videoEl.buffered.end(i)) {
+                        return videoEl.buffered.end(i) - t;
+                    }
+                }
+                return 0;
+            }
+
+            function sleep(ms) {
+                return new Promise((res) => setTimeout(res, ms));
+            }
+
+            // Streams an fMP4 body box-by-box into a MediaSource buffer.
+            // While the video is paused or buffered far enough ahead, reading
+            // stops (natural network backpressure), so a paused tab doesn't keep
+            // draining the whole file. If the upstream connection dies or the
+            // body ends early (URL expiry / mid-stream drop), it re-fetches from
+            // the exact byte offset and keeps appending seamlessly.
+            async function appendBoxes(videoEl, sb, relayUrl, onFirstSegment, signal) {
+                let streamPos = 0;
                 let buf = new Uint8Array(0);
                 let init = new Uint8Array(0);
                 let gotInit = false;
                 let pending = null;
+                let segStart = -1;
                 let firstDone = false;
+                let refetches = 0;
+                const MAX_REFETCHES = 3;
+
                 while (true) {
-                    const { value, done } = await reader.read();
-                    if (value) buf = concatBytes(buf, value);
-                    while (buf.length >= 8) {
-                        let size =
-                            (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-                        if (size === 1) {
-                            if (buf.length < 16) break;
-                            size =
-                                (((buf[8] << 24) | (buf[9] << 16) | (buf[10] << 8) | buf[11]) >>> 0) *
-                                    4294967296 +
-                                (((buf[12] << 24) | (buf[13] << 16) | (buf[14] << 8) | buf[15]) >>> 0);
-                            if (buf.length < 16 + (size - 16)) break;
-                        } else if (size === 0) {
-                            size = buf.length;
-                        }
-                        if (buf.length < size) break;
-                        const box = buf.subarray(0, size);
-                        buf = buf.subarray(size);
-                        const type = String.fromCharCode(box[4], box[5], box[6], box[7]);
-                        if (!gotInit) {
-                            if (type === "moof") {
-                                gotInit = true;
-                                await appendBufferAsync(sb, init);
-                                init = null;
-                                pending = box;
-                            } else {
-                                init = concatBytes(init, box);
-                            }
-                        } else if (type === "moof") {
-                            pending = box;
-                        } else if (type === "mdat") {
-                            const seg = pending ? concatBytes(pending, box) : box;
-                            pending = null;
-                            await appendBufferAsync(sb, seg);
-                            if (!firstDone) {
-                                firstDone = true;
-                                if (onFirstSegment) onFirstSegment();
-                            }
-                        }
+                    const resp = await fetch(relayUrl, {
+                        headers: { Range: "bytes=" + streamPos + "-" },
+                        signal,
+                    });
+                    if (resp.status === 403 || resp.status === 404) throw new Error("expired");
+                    if (!resp.ok) throw new Error("relay " + resp.status);
+                    const reader = resp.body.getReader();
+                    let expected = -1;
+                    const cr = resp.headers.get("Content-Range");
+                    if (cr) {
+                        const m = cr.match(/\/(\d+)$/);
+                        if (m) expected = parseInt(m[1], 10);
                     }
-                    if (done) break;
+                    try {
+                        while (true) {
+                            while (
+                                firstDone &&
+                                (videoEl.paused || bufferedAhead(videoEl) > 300)
+                            ) {
+                                if (signal.aborted) throw new Error("aborted");
+                                await sleep(250);
+                            }
+                            const { value, done } = await reader.read();
+                            if (value) buf = concatBytes(buf, value);
+                            while (buf.length >= 8) {
+                                let size =
+                                    (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+                                if (size === 1) {
+                                    if (buf.length < 16) break;
+                                    size =
+                                        (((buf[8] << 24) | (buf[9] << 16) | (buf[10] << 8) | buf[11]) >>> 0) *
+                                            4294967296 +
+                                        (((buf[12] << 24) | (buf[13] << 16) | (buf[14] << 8) | buf[15]) >>> 0);
+                                    if (buf.length < 16 + (size - 16)) break;
+                                } else if (size === 0) {
+                                    size = buf.length;
+                                }
+                                if (buf.length < size) break;
+                                const box = buf.subarray(0, size);
+                                buf = buf.subarray(size);
+                                streamPos += size;
+                                const type = String.fromCharCode(box[4], box[5], box[6], box[7]);
+                                if (!gotInit) {
+                                    if (type === "moof") {
+                                        gotInit = true;
+                                        await appendBufferAsync(sb, init);
+                                        init = null;
+                                        pending = box;
+                                        segStart = streamPos - size;
+                                    } else {
+                                        init = concatBytes(init, box);
+                                    }
+                                } else if (type === "moof") {
+                                    pending = box;
+                                    segStart = streamPos - size;
+                                } else if (type === "mdat") {
+                                    const seg = pending ? concatBytes(pending, box) : box;
+                                    pending = null;
+                                    segStart = -1;
+                                    await appendBufferAsync(sb, seg);
+                                    if (!firstDone) {
+                                        firstDone = true;
+                                        if (onFirstSegment) onFirstSegment();
+                                    }
+                                }
+                            }
+                            if (done) break;
+                        }
+                    } catch (e) {
+                        if (signal.aborted) throw e;
+                        if (++refetches > MAX_REFETCHES) throw e;
+                        streamPos = segStart !== -1 ? segStart : streamPos - buf.length;
+                        pending = null;
+                        segStart = -1;
+                        buf = new Uint8Array(0);
+                        continue;
+                    }
+                    if (expected !== -1 && streamPos < expected) {
+                        if (++refetches > MAX_REFETCHES) throw new Error("truncated");
+                        streamPos = segStart !== -1 ? segStart : streamPos - buf.length;
+                        pending = null;
+                        segStart = -1;
+                        buf = new Uint8Array(0);
+                        continue;
+                    }
+                    if (pending) await appendBufferAsync(sb, pending);
+                    return;
                 }
-                if (pending) await appendBufferAsync(sb, pending);
             }
 
-            async function playStreamPair(videoEl, videoUrl, audioUrl, vcodec, acodec) {
+            async function playStreamPair(videoEl, videoUrl, audioUrl, vcodec, acodec, signal) {
                 const relay = (u) => "/api/video/relay?url=" + encodeURIComponent(u);
                 const ms = new MediaSource();
-                videoEl.src = URL.createObjectURL(ms);
-                await new Promise((res, rej) => {
-                    ms.addEventListener("sourceopen", res, { once: true });
-                    ms.addEventListener("error", rej, { once: true });
-                });
-                const vSB = ms.addSourceBuffer(
-                    'video/mp4; codecs="' + (vcodec || "avc1.640028") + '"'
-                );
-                const aSB = ms.addSourceBuffer(
-                    'audio/mp4; codecs="' + (acodec || "mp4a.40.2") + '"'
-                );
+                const blobUrl = URL.createObjectURL(ms);
+                videoEl.src = blobUrl;
+                try {
+                    await new Promise((res, rej) => {
+                        ms.addEventListener("sourceopen", res, { once: true });
+                        ms.addEventListener("error", rej, { once: true });
+                    });
+                    const vSB = ms.addSourceBuffer(
+                        'video/mp4; codecs="' + (vcodec || "avc1.640028") + '"'
+                    );
+                    const aSB = ms.addSourceBuffer(
+                        'audio/mp4; codecs="' + (acodec || "mp4a.40.2") + '"'
+                    );
 
-                let vFirst = false;
-                let aFirst = false;
-                const maybeStart = () => {
-                    if (vFirst && aFirst) {
-                        setStatus("");
-                        videoEl.play().catch(() => {});
-                    }
-                };
+                    let vFirst = false;
+                    let aFirst = false;
+                    const maybeStart = () => {
+                        if (vFirst && aFirst) {
+                            setStatus("");
+                            videoEl.play().catch(() => {});
+                        }
+                    };
 
-                const vResp = await fetch(relay(videoUrl));
-                if (!vResp.ok) throw new Error("video " + vResp.status);
-                const aResp = await fetch(relay(audioUrl));
-                if (!aResp.ok) throw new Error("audio " + aResp.status);
-                if (!vResp.body || !aResp.body) throw new Error("no streaming");
+                    await Promise.all([
+                        appendBoxes(videoEl, vSB, relay(videoUrl), () => {
+                            vFirst = true;
+                            maybeStart();
+                        }, signal),
+                        appendBoxes(videoEl, aSB, relay(audioUrl), () => {
+                            aFirst = true;
+                            maybeStart();
+                        }, signal),
+                    ]);
 
-                await Promise.all([
-                    appendBoxes(vSB, vResp.body, () => {
-                        vFirst = true;
-                        maybeStart();
-                    }),
-                    appendBoxes(aSB, aResp.body, () => {
-                        aFirst = true;
-                        maybeStart();
-                    }),
-                ]);
-
-                if (ms.readyState === "open") ms.endOfStream();
+                    if (ms.readyState === "open") ms.endOfStream();
+                } catch (e) {
+                    URL.revokeObjectURL(blobUrl);
+                    throw e;
+                }
             }
 
             searchBtn.addEventListener("click", search);

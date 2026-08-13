@@ -291,7 +291,7 @@ func setupRoutes(app *fiber.App) {
 	})
 
 	app.Get("/api/video/stream/:id", func(c *fiber.Ctx) error {
-		data := resolveVideoStreamInfo(c.Params("id"))
+		data := resolveVideoStreamInfo(c.Params("id"), c.Query("fresh") == "1")
 		if data == nil {
 			return c.JSON(fiber.Map{})
 		}

@@ -50,13 +50,25 @@ func getRealIP(r *http.Request) string {
 // CORS headers). Restricted to googlevideo/videoplayback URLs. Implemented as a
 // plain net/http handler because fiber's SendStream misbehaves under the
 // net/http adaptor.
+// videoRelaySem caps concurrent video relays so a classroom full of viewers
+// can't saturate the VPS's bandwidth all at once. Excess requests get a 503,
+// which the client's retry loop recovers from naturally.
+var videoRelaySem = make(chan struct{}, 6)
+
 func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 	u := r.URL.Query().Get("url")
 	if !strings.Contains(u, "googlevideo.com/videoplayback") {
 		http.Error(w, "invalid url", http.StatusBadRequest)
 		return
 	}
-	req, err := http.NewRequest("GET", u, nil)
+	select {
+	case videoRelaySem <- struct{}{}:
+		defer func() { <-videoRelaySem }()
+	default:
+		http.Error(w, "busy, try again", http.StatusServiceUnavailable)
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), "GET", u, nil)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -68,7 +80,7 @@ func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 	} else {
 		req.Header.Set("Range", "bytes=0-")
 	}
-	client := &http.Client{}
+	client := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 30 * time.Second}}
 	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
