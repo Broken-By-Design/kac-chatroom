@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gmes</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #0b0e14;
+            --surface: #12161f;
+            --surface-2: #1a2130;
+            --border: #232c3d;
+            --text: #e8ebf2;
+            --muted: #8f99ab;
+            --accent: #7ba7ff;
+            --accent-2: #6a5cff;
+            --ok: #5eead4;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(1200px 600px at 80% -10%, rgba(123, 167, 255, 0.08), transparent 60%),
+                radial-gradient(900px 500px at 0% 110%, rgba(106, 92, 255, 0.07), transparent 60%),
+                var(--bg);
+            min-height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            padding: 1.5rem;
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+            padding: 1rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 0.8rem;
+            overflow: hidden;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            border-color: var(--accent);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+        }
+
+        .card .thumb {
+            width: 100%;
+            height: 140px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--surface-2);
+            font-size: 3rem;
+            user-select: none;
+        }
+
+        .card .name {
+            display: block;
+            padding: 0.75rem;
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 2rem;
+            color: var(--muted);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.75);
+        }
+
+        .modal.open {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .modal-box {
+            width: 100%;
+            max-width: 900px;
+            height: 90vh;
+            max-height: 700px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-box.fullscreen {
+            max-width: none;
+            max-height: none;
+            width: 100vw;
+            height: 100vh;
+            border-radius: 0;
+            border: none;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .modal-header .title {
+            font-weight: 600;
+            font-size: 16px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .modal-header .actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .modal-btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .modal-btn:hover {
+            border-color: var(--accent);
+        }
+
+        .modal-body {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        .modal-body iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">Gmes</div>
+    <div class="grid" id="grid">
+        <div class="empty">Nothing here yet.</div>
+    </div>
+
+    <div class="modal" id="modal">
+        <div class="modal-box" id="modalBox">
+            <div class="modal-header">
+                <span class="title" id="title"></span>
+                <div class="actions">
+                    <button class="modal-btn" id="fullscreenBtn">Fullscreen</button>
+                    <button class="modal-btn" id="closeBtn">Close</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <iframe id="frame" allow="fullscreen" allowfullscreen></iframe>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Add entries here. Each needs: name, emoji (icon), and url to open.
+        const COLLECTION = [
+            {
+                name: "Google Snake",
+                emoji: "\u{1F40D}",
+                url: "https://www.google.com/fbx?fbx=snake_arcade&fbxga=1&hl=en&origin=www.google.com",
+            },
+        ];
+
+        const grid = document.getElementById("grid");
+        const modal = document.getElementById("modal");
+        const modalBox = document.getElementById("modalBox");
+        const frame = document.getElementById("frame");
+        const title = document.getElementById("title");
+
+        grid.innerHTML = "";
+
+        COLLECTION.forEach((item) => {
+            const card = document.createElement("div");
+            card.className = "card";
+            card.innerHTML =
+                '<div class="thumb">' + item.emoji + "</div>" +
+                '<span class="name">' + item.name + "</span>";
+            card.addEventListener("click", () => {
+                title.textContent = item.name;
+                frame.src = item.url;
+                modal.classList.add("open");
+            });
+            grid.appendChild(card);
+        });
+
+        function closeModal() {
+            modal.classList.remove("open");
+            frame.src = "about:blank";
+            modalBox.classList.remove("fullscreen");
+            document.getElementById("fullscreenBtn").textContent = "Fullscreen";
+        }
+
+        document.getElementById("closeBtn").addEventListener("click", closeModal);
+
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") closeModal();
+        });
+
+        const fullscreenBtn = document.getElementById("fullscreenBtn");
+        fullscreenBtn.addEventListener("click", () => {
+            const isFullscreen = modalBox.classList.toggle("fullscreen");
+            fullscreenBtn.textContent = isFullscreen ? "Exit Fullscreen" : "Fullscreen";
+        });
+    </script>
+</body>
+</html>

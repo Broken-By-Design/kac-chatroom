@@ -374,9 +374,9 @@ func handleChatMessage(s *socketio.Socket, data []any) {
 		emitChatMessage(map[string]any{"message": msgText, "nickname": "KAC-Bot", "timestamp": timestamp, "system": true})
 		addChatlogEntry(msgText, "KAC-Bot", timestamp, "system", "")
 	} else if strings.HasPrefix(message, "/help") {
-		msgText := html.EscapeString(fmt.Sprintf("%s, The commands are: !bot <message>, /clear, /online, /highlight <message>, /cloak, /lyrics <song name>, /whitman, /gamble, /yt, and /clock", nickname))
+		msgText := html.EscapeString(fmt.Sprintf("%s, The commands are: !bot <message>, /clear, /online, /highlight <message>, /cloak, /lyrics <song name>, /whitman, /gamble, /yt, /clock, and /games", nickname))
 		emitChatMessage(map[string]any{"message": msgText, "nickname": "KAC-Bot", "timestamp": timestamp, "system": true})
-		addChatlogEntry(html.EscapeString(fmt.Sprintf("%s, The commands are: !bot <message>, /clear, /online, /highlight <message>, /cloak, /lyrics <song name>, /whitman, /gamble, /yt, and /clock", nickname)), "KAC-Bot", timestamp, "system", "")
+		addChatlogEntry(html.EscapeString(fmt.Sprintf("%s, The commands are: !bot <message>, /clear, /online, /highlight <message>, /cloak, /lyrics <song name>, /whitman, /gamble, /yt, /clock, and /games", nickname)), "KAC-Bot", timestamp, "system", "")
 	} else {
 		parseCommand(message, nickname, timestamp)
 	}

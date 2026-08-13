@@ -205,6 +205,12 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        if (ui.input.value === "/games") {
+            openCloakedTab(location.origin + "/study-hub-d6eca0");
+            ui.input.value = "";
+            return;
+        }
+
         if (ui.input.value === "/notes") {
             cloakURL("a.superstudies.site/notes");
             ui.input.value = "";

@@ -571,6 +571,11 @@ form.addEventListener("submit", (e) => {
     input.value = "";
     return;
   }
+  if (input.value === "/games") {
+    openGame("study-hub-d6eca0");
+    input.value = "";
+    return;
+  }
   if (input.value) {
     socket.emit("chat_message", {
       message: input.value,

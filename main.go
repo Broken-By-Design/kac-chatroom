@@ -286,6 +286,10 @@ func setupRoutes(app *fiber.App) {
 		return render(c, "clock.html", nil)
 	})
 
+	app.Get("/study-hub-d6eca0", func(c *fiber.Ctx) error {
+		return render(c, "games.html", nil)
+	})
+
 	app.Get("/api/video/search", func(c *fiber.Ctx) error {
 		q := strings.TrimSpace(c.Query("q"))
 		if q == "" {
