@@ -193,7 +193,7 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        if (ui.input.value === "/videos") {
+        if (ui.input.value === "/yt") {
             openCloakedTab(location.origin + "/video-search-d6eca0");
             ui.input.value = "";
             return;
