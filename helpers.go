@@ -51,9 +51,10 @@ func getRealIP(r *http.Request) string {
 // plain net/http handler because fiber's SendStream misbehaves under the
 // net/http adaptor.
 // videoRelaySem caps concurrent video relays so a classroom full of viewers
-// can't saturate the VPS's bandwidth all at once. Excess requests get a 503,
-// which the client's retry loop recovers from naturally.
-var videoRelaySem = make(chan struct{}, 6)
+// can't saturate the VPS's bandwidth all at once. Excess requests get a 503.
+// Increased from 6 to 60 to allow native browser <video> and <audio> tags
+// to comfortably fetch segments without hitting 503s on seek.
+var videoRelaySem = make(chan struct{}, 60)
 
 func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 	u := r.URL.Query().Get("url")
@@ -73,14 +74,32 @@ func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+	// These headers mirror a real browser's media request. YouTube/Google
+	// rejects bare UA+Referer fetches of googlevideo streams (403), so the
+	// Sec-Fetch-* / Origin / Accept headers are required to be accepted.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36")
 	req.Header.Set("Referer", "https://www.youtube.com/")
+	req.Header.Set("Origin", "https://www.youtube.com")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	req.Header.Set("Sec-Fetch-Dest", "video")
+	req.Header.Set("Sec-Ch-Ua", `"Not;A=Brand";v="24", "Chromium";v="138", "Google Chrome";v="138"`)
+	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
+	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
+	req.Header.Set("Accept-Encoding", "identity")
 	if rng := r.Header.Get("Range"); rng != "" {
 		req.Header.Set("Range", rng)
 	} else {
 		req.Header.Set("Range", "bytes=0-")
 	}
-	client := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 30 * time.Second}}
+	// Clone DefaultTransport so we keep Go's HTTP/2 + ALPN negotiation that
+	// mirrors a browser request fingerprint; the server's bare Transport was
+	// rejected by Google's bot detection on googlevideo playback URLs.
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = 30 * time.Second
+	client := &http.Client{Transport: tr}
 	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)

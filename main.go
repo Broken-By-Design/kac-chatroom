@@ -48,6 +48,8 @@ func main() {
 
 	initState()
 	loadAIPersonality()
+	initRecommendQueries()
+	loadYTCredentials()
 	initTemplates()
 
 	db = connectDB()
@@ -279,15 +281,33 @@ func setupRoutes(app *fiber.App) {
 	})
 
 	app.Get("/video-search-d6eca0", func(c *fiber.Ctx) error {
-		return render(c, "video_search.html", nil)
+		sess := getSession(c)
+		nickname := sess.Nickname
+		if nickname == "" {
+			nickname = "Guest"
+		}
+		return render(c, "video_search.html", map[string]any{"nickname": nickname})
 	})
 
 	app.Get("/api/video/search", func(c *fiber.Ctx) error {
 		q := strings.TrimSpace(c.Query("q"))
-		if q == "" {
-			return c.JSON([]VideoSearchResult{})
+		continuation := c.Query("continuation")
+		if q == "" && continuation == "" {
+			return c.JSON(fiber.Map{"results": []VideoSearchResult{}, "continuation": "", "queries": recommendQueries})
 		}
-		return c.JSON(searchVideos(q))
+		results, next := searchVideos(q, continuation)
+		if results == nil {
+			results = []VideoSearchResult{}
+		}
+		return c.JSON(fiber.Map{"results": results, "continuation": next, "queries": recommendQueries})
+	})
+
+	app.Get("/api/video/recommendations", func(c *fiber.Ctx) error {
+		results, next := recommendVideos(c.Query("continuation"))
+		if results == nil {
+			results = []VideoSearchResult{}
+		}
+		return c.JSON(fiber.Map{"results": results, "continuation": next, "queries": recommendQueries})
 	})
 
 	app.Get("/api/video/stream/:id", func(c *fiber.Ctx) error {
@@ -636,6 +656,21 @@ func setupRoutes(app *fiber.App) {
 	app.Post("/admin/update-bans", adminRequired, func(c *fiber.Ctx) error {
 		syncBanListFromDB()
 		return c.JSON(fiber.Map{"message": "Ban list has been updated from the database."})
+	})
+
+	// YouTube credential health: lets an admin see when cookies/PO tokens stop
+	// working so they can be swapped out for fresh ones.
+	app.Get("/admin/stream-creds", adminRequired, func(c *fiber.Ctx) error {
+		return c.JSON(ytCredHealthList())
+	})
+
+	app.Post("/admin/stream-creds/reset", adminRequired, func(c *fiber.Ctx) error {
+		ytCredHealthReset()
+		return c.JSON(fiber.Map{"message": "Credential health flags have been reset."})
+	})
+
+	app.Post("/admin/stream-creds/test", adminRequired, func(c *fiber.Ctx) error {
+		return c.JSON(testYTCredentials())
 	})
 
 	app.Post("/admin/reset-bot-memory", adminRequired, func(c *fiber.Ctx) error {

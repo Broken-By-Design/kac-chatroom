@@ -39,9 +39,25 @@ func TestTemplatesRender(t *testing.T) {
 		if buf.Len() == 0 {
 			t.Fatalf("template %s rendered empty", name)
 		}
-		t.Logf("%s rendered %d bytes", name, buf.Len())
+	var bufVSearch bytes.Buffer
+	if err := templates.ExecuteTemplate(&bufVSearch, "video_search.html", map[string]any{
+		"nickname": "alice",
+		"expiry":   "2026-08-07 12:00:00 CDT",
+	}); err != nil {
+		t.Fatalf("video_search.html render failed: %v", err)
 	}
-
+	vs := bufVSearch.Bytes()
+	// Single stream URLs are bound to the server's cookie/PO-token session and
+	// 403 when the browser loads them directly. They must go through the relay.
+	if bytes.Contains(vs, []byte(`videoEl.src = data.single`)) {
+		t.Fatalf("video_search.html assigns single stream URL directly; " +
+			"it must be proxied via /api/video/relay")
+	}
+	if !bytes.Contains(vs, []byte(`/api/video/relay?url="`)) ||
+		!bytes.Contains(vs, []byte(`encodeURIComponent(data.single)`)) {
+		t.Fatalf("video_search.html single fallback does not route through the relay")
+	}
+}
 	dataPermanent := map[string]any{"expiry": "Permanent"}
 	var bufP bytes.Buffer
 	if err := templates.ExecuteTemplate(&bufP, "BANNED.html", dataPermanent); err != nil {

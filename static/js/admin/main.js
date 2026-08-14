@@ -330,6 +330,101 @@ document.addEventListener("DOMContentLoaded", function () {
     fetchMemStats();
     setInterval(fetchMemStats, 5000);
 
+    // --- YouTube stream credential health ---
+    const streamCreds = document.getElementById("streamCreds");
+    const resetCredHealthBtn = document.getElementById("resetCredHealthBtn");
+    const testCredHealthBtn = document.getElementById("testCredHealthBtn");
+
+    const esc = (s) =>
+        String(s ?? "").replace(/[&<>"']/g, (ch) => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;",
+        }[ch]));
+
+    const fetchStreamCreds = async () => {
+        try {
+            const response = await fetch("/admin/stream-creds");
+            if (!response.ok) return;
+            const data = await response.json();
+            if (!data.length) {
+                streamCreds.innerHTML =
+                    '<p class="panel-sub">No credentials configured.</p>';
+                return;
+            }
+            streamCreds.innerHTML = data
+                .map((p) => {
+                    const badge =
+                        p.flagged && p.status === "failed"
+                            ? '<span class="cred-badge cred-bad">BAD - replace</span>'
+                            : p.status === "ok"
+                              ? '<span class="cred-badge cred-good">OK</span>'
+                              : p.status === "failed"
+                                ? '<span class="cred-badge cred-warn">Failing</span>'
+                                : '<span class="cred-badge cred-standby">Standby (not probed)</span>';
+                    const when = p.last_tested
+                        ? new Date(p.last_tested).toLocaleTimeString()
+                        : "never";
+                    return `<div class="cred-row">
+                        <div><b>${esc(p.label)}</b> ${badge}</div>
+                        <div class="cred-detail">cookies: ${
+                            p.cookies_file ? esc(p.cookies_file) : "none"
+                        } | PO token: ${p.has_po_token ? "yes" : "no"} | streak: ${
+                            p.fail_streak
+                        } | last tested: ${when}</div>
+                        ${
+                            p.last_error
+                                ? `<div class="cred-error">${esc(p.last_error)}</div>`
+                                : ""
+                        }
+                    </div>`;
+                })
+                .join("");
+        } catch (error) {
+            streamCreds.textContent = "Unable to load credential health.";
+        }
+    };
+    fetchStreamCreds();
+    setInterval(fetchStreamCreds, 10000);
+
+    resetCredHealthBtn.addEventListener("click", async () => {
+        try {
+            const response = await fetch("/admin/stream-creds/reset", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+            });
+            if (response.ok) {
+                showMessage(successMessage, "Credential health flags reset.");
+                fetchStreamCreds();
+            } else {
+                const errorData = await response.json();
+                showMessage(failMessage, `Error: ${errorData.message}`);
+            }
+        } catch (error) {
+            showMessage(failMessage, "An unexpected error occurred.");
+        }
+    });
+
+    testCredHealthBtn.addEventListener("click", async () => {
+        showMessage(successMessage, "Probing credentials…");
+        try {
+            const response = await fetch("/admin/stream-creds/test", {
+                method: "POST",
+            });
+            if (response.ok) {
+                fetchStreamCreds();
+            } else {
+                const errorData = await response.json();
+                showMessage(failMessage, `Error: ${errorData.message}`);
+            }
+        } catch (error) {
+            showMessage(failMessage, "An unexpected error occurred.");
+        }
+    });
+
     // Initial load
     fetchAndRenderUsers();
 });

@@ -22,7 +22,20 @@ COPY --from=builder /src/Whitman ./Whitman
 COPY --from=builder /src/ai_personality.txt ./ai_personality.txt
 COPY --from=builder /src/badwords.txt ./badwords.txt
 
+# Optional YouTube credentials for more reliable stream resolution.
+# Cookie files are gitignored secrets: present locally when you have them,
+# absent in clean CI checkouts. Mount the whole build context (always present)
+# and copy each credential file only if it exists, so the build never fails
+# for a missing secret. If you get a stale-cache "not found", rebuild with
+# `docker buildx build --no-cache`.
+RUN --mount=type=bind,src=.,target=/ctx,ro \
+    cp /ctx/cookies_johndimi.txt /app/cookies_johndimi.txt 2>/dev/null || true
+RUN --mount=type=bind,src=.,target=/ctx,ro \
+    cp /ctx/cookies_johndrop.txt /app/cookies_johndrop.txt 2>/dev/null || true
+
 EXPOSE 5000
 
 ENV PORT=5000
-ENTRYPOINT ["/usr/local/bin/chatroom"]
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

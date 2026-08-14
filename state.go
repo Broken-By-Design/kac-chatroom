@@ -21,9 +21,10 @@ type UserOffense struct {
 
 // VideoSearchResult is a single YouTube hit returned by the video search API.
 type VideoSearchResult struct {
-	Title   string `json:"title"`
-	Channel string `json:"channel"`
-	VideoID string `json:"videoId"`
+	Title       string `json:"title"`
+	Channel     string `json:"channel"`
+	VideoID     string `json:"videoId"`
+	Description string `json:"description"`
 }
 
 // State is the thread-safe equivalent of utils/globals.py.
