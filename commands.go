@@ -1,15 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"html"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,10 +25,15 @@ const lyricsAPI = "https://lrclib.net/api/search"
 // used for keyless search scraping.
 const innertubeWebKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 
-func searchVideos(query string) []VideoSearchResult {
-	body := fmt.Sprintf(`{"context":{"client":{"clientName":"WEB","clientVersion":"2.20240801.00.00","hl":"en","gl":"US"}},"query":%s}`, strconv.Quote(query))
+// innertubePost sends a request to a youtubei/v1 endpoint and returns the
+// decoded JSON payload as an arbitrary tree. Returns nil on any failure.
+func innertubePost(endpoint string, body map[string]any) any {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil
+	}
 	client := &http.Client{Timeout: 8 * time.Second}
-	req, err := http.NewRequest("POST", "https://www.youtube.com/youtubei/v1/search?key="+innertubeWebKey, strings.NewReader(body))
+	req, err := http.NewRequest("POST", "https://www.youtube.com/youtubei/v1/"+endpoint+"?key="+innertubeWebKey, bytes.NewReader(payload))
 	if err != nil {
 		return nil
 	}
@@ -42,6 +48,41 @@ func searchVideos(query string) []VideoSearchResult {
 	if json.NewDecoder(resp.Body).Decode(&root) != nil {
 		return nil
 	}
+	return root
+}
+
+// collectContinuation walks the innertube response looking for the first
+// continuation token used to fetch the next page of results.
+func collectContinuation(node any) string {
+	switch v := node.(type) {
+	case map[string]any:
+		if cmd, ok := v["continuationCommand"].(map[string]any); ok {
+			if token, ok := cmd["token"].(string); ok && token != "" {
+				return token
+			}
+		}
+		for _, child := range v {
+			if t := collectContinuation(child); t != "" {
+				return t
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if t := collectContinuation(child); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
+// videoPage runs an innertube query and returns deduped videos plus the
+// continuation token for the next page, if any.
+func videoPage(endpoint string, body map[string]any) ([]VideoSearchResult, string) {
+	root := innertubePost(endpoint, body)
+	if root == nil {
+		return nil, ""
+	}
 	var results []VideoSearchResult
 	collectVideos(root, &results)
 	seen := map[string]bool{}
@@ -52,7 +93,136 @@ func searchVideos(query string) []VideoSearchResult {
 			deduped = append(deduped, r)
 		}
 	}
-	return deduped
+	return deduped, collectContinuation(root)
+}
+
+// searchVideos returns one page of search results. Pass a continuation token
+// (from a prior call) to fetch the next page; otherwise pass the query.
+func searchVideos(query, continuation string) ([]VideoSearchResult, string) {
+	body := map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName": "WEB", "clientVersion": "2.20240801.00.00", "hl": "en", "gl": "US",
+			},
+		},
+	}
+	if continuation != "" {
+		body["continuation"] = continuation
+	} else {
+		body["query"] = query
+	}
+	return videoPage("search", body)
+}
+
+// defaultRecommendQueries seed the homepage when the logged-out home feed is
+// unavailable (YouTube gates it behind a sign-in). Override with the
+// RECOMMEND_QUERIES env var (comma-separated) to influence what gets surfaced.
+var defaultRecommendQueries = []string{
+	"viral videos 2026",
+	"trending music",
+	"best of gaming",
+	"science explained",
+	"comedy skits",
+	"top songs 2026",
+	"documentary",
+	"cooking recipes",
+}
+
+// recommendQueries is the active query pool, seeded from the env var if set.
+var recommendQueries = defaultRecommendQueries
+
+func initRecommendQueries() {
+	raw := os.Getenv("RECOMMEND_QUERIES")
+	if raw == "" {
+		return
+	}
+	var out []string
+	for _, q := range strings.Split(raw, ",") {
+		q = strings.TrimSpace(q)
+		if q != "" {
+			out = append(out, q)
+		}
+	}
+	if len(out) > 0 {
+		recommendQueries = out
+	}
+}
+
+// shuffledQueries returns the recommendation pool in random order so the
+// homepage isn't the same every load.
+func shuffledQueries() []string {
+	out := make([]string, len(recommendQueries))
+	copy(out, recommendQueries)
+	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out
+}
+
+// recommendVideos returns one page of home-feed recommendations. Pass a
+// continuation token to fetch the next page. If the home feed is empty
+// (auth-gated), it falls back to a merged set of curated searches.
+func recommendVideos(continuation string) ([]VideoSearchResult, string) {
+	body := map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName": "WEB", "clientVersion": "2.20240801.00.00", "hl": "en", "gl": "US",
+			},
+		},
+	}
+	if continuation != "" {
+		body["continuation"] = continuation
+	} else {
+		body["browseId"] = "FEwhat_to_watch"
+	}
+	results, next := videoPage("browse", body)
+	if len(results) > 0 {
+		return results, next
+	}
+	if continuation != "" {
+		return nil, ""
+	}
+	seen := map[string]bool{}
+	var (
+		mu     sync.Mutex
+		perQ   [][]VideoSearchResult
+		wg     sync.WaitGroup
+		queries = shuffledQueries()
+	)
+	perQ = make([][]VideoSearchResult, len(queries))
+	for i, q := range queries {
+		q := q
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			rs, _ := searchVideos(q, "")
+			mu.Lock()
+			defer mu.Unlock()
+			for _, r := range rs {
+				if !seen[r.VideoID] {
+					seen[r.VideoID] = true
+					perQ[idx] = append(perQ[idx], r)
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	var merged []VideoSearchResult
+	for round := 0; len(merged) < 20; round++ {
+		added := 0
+		for _, list := range perQ {
+			if round < len(list) {
+				merged = append(merged, list[round])
+				added++
+			}
+			if len(merged) >= 20 {
+				break
+			}
+		}
+		if added == 0 {
+			break
+		}
+	}
+	return merged, ""
 }
 
 func collectVideos(node any, out *[]VideoSearchResult) {
@@ -66,6 +236,18 @@ func collectVideos(node any, out *[]VideoSearchResult) {
 				}
 				if byline, ok := vr["shortBylineText"].(map[string]any); ok {
 					result.Channel = runsText(byline["runs"])
+				}
+				if dms, ok := vr["detailedMetadataSnippets"].([]any); ok && len(dms) > 0 {
+					if first, ok := dms[0].(map[string]any); ok {
+						if st, ok := first["snippetText"].(map[string]any); ok {
+							result.Description = runsText(st["runs"])
+						}
+					}
+				}
+				if result.Description == "" {
+					if snippet, ok := vr["descriptionSnippet"].(map[string]any); ok {
+						result.Description = runsText(snippet["runs"])
+					}
 				}
 				*out = append(*out, result)
 			}
@@ -148,6 +330,9 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 	}
 	var info struct {
 		URL              string `json:"url"`
+		Title            string `json:"title"`
+		Channel          string `json:"channel"`
+		Description      string `json:"description"`
 		RequestedFormats []struct {
 			URL    string `json:"url"`
 			VCodec string `json:"vcodec"`
@@ -164,6 +349,15 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 		return nil
 	}
 	result := map[string]any{}
+	if info.Title != "" {
+		result["title"] = info.Title
+	}
+	if info.Channel != "" {
+		result["channel"] = info.Channel
+	}
+	if info.Description != "" {
+		result["description"] = info.Description
+	}
 	if len(info.RequestedFormats) == 2 {
 		v, a := info.RequestedFormats[0], info.RequestedFormats[1]
 		if v.VCodec == "none" && a.VCodec != "none" {
@@ -179,10 +373,15 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 	if info.URL != "" && strings.Contains(info.URL, "googlevideo.com") {
 		result["single"] = info.URL
 	}
+	var bestSingleH int
 	for _, f := range info.Formats {
 		if f.URL != "" && f.VCodec != "none" && f.ACodec != "none" && strings.Contains(f.URL, "googlevideo.com") {
-			if best, _ := result["single"].(string); best == "" {
+			if best, ok := result["single"].(string); !ok || best == "" {
 				result["single"] = f.URL
+				bestSingleH = f.Height
+			} else if f.Height > bestSingleH {
+				result["single"] = f.URL
+				bestSingleH = f.Height
 			}
 		}
 	}

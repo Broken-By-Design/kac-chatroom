@@ -48,6 +48,7 @@ func main() {
 
 	initState()
 	loadAIPersonality()
+	initRecommendQueries()
 	initTemplates()
 
 	db = connectDB()
@@ -75,6 +76,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/socket.io/", engineHandler)
 	mux.HandleFunc("/api/video/relay", handleVideoRelay)
+	mux.HandleFunc("/hls/", handleHLSFile)
 	mux.Handle("/", httpHandler)
 
 	fmt.Println("Chatroom server listening on 0.0.0.0:5000")
@@ -279,15 +281,33 @@ func setupRoutes(app *fiber.App) {
 	})
 
 	app.Get("/video-search-d6eca0", func(c *fiber.Ctx) error {
-		return render(c, "video_search.html", nil)
+		sess := getSession(c)
+		nickname := sess.Nickname
+		if nickname == "" {
+			nickname = "Guest"
+		}
+		return render(c, "video_search.html", map[string]any{"nickname": nickname})
 	})
 
 	app.Get("/api/video/search", func(c *fiber.Ctx) error {
 		q := strings.TrimSpace(c.Query("q"))
-		if q == "" {
-			return c.JSON([]VideoSearchResult{})
+		continuation := c.Query("continuation")
+		if q == "" && continuation == "" {
+			return c.JSON(fiber.Map{"results": []VideoSearchResult{}, "continuation": "", "queries": recommendQueries})
 		}
-		return c.JSON(searchVideos(q))
+		results, next := searchVideos(q, continuation)
+		if results == nil {
+			results = []VideoSearchResult{}
+		}
+		return c.JSON(fiber.Map{"results": results, "continuation": next, "queries": recommendQueries})
+	})
+
+	app.Get("/api/video/recommendations", func(c *fiber.Ctx) error {
+		results, next := recommendVideos(c.Query("continuation"))
+		if results == nil {
+			results = []VideoSearchResult{}
+		}
+		return c.JSON(fiber.Map{"results": results, "continuation": next, "queries": recommendQueries})
 	})
 
 	app.Get("/api/video/stream/:id", func(c *fiber.Ctx) error {
@@ -296,6 +316,42 @@ func setupRoutes(app *fiber.App) {
 			return c.JSON(fiber.Map{})
 		}
 		return c.JSON(data)
+	})
+
+	// /api/video/hls/:id — resolves stream URLs then transcodes to HLS via
+	// ffmpeg (stream copy, no re-encode). Returns the .m3u8 URL so the browser
+	// can seek natively. Falls back gracefully if ffmpeg is absent.
+	app.Get("/api/video/hls/:id", func(c *fiber.Ctx) error {
+		videoID := c.Params("id")
+		data := resolveVideoStreamInfo(videoID, c.Query("fresh") == "1")
+		if data == nil {
+			return c.JSON(fiber.Map{"error": "could not resolve stream"})
+		}
+		// Build metadata response regardless of HLS success
+		out := fiber.Map{}
+		if t, ok := data["title"]; ok {
+			out["title"] = t
+		}
+		if ch, ok := data["channel"]; ok {
+			out["channel"] = ch
+		}
+		if d, ok := data["description"]; ok {
+			out["description"] = d
+		}
+		videoURL, hasV := data["video"].(string)
+		audioURL, hasA := data["audio"].(string)
+		if hasV && hasA {
+			m3u8, err := startHLSTranscode(videoID, videoURL, audioURL)
+			if err == nil {
+				out["hls"] = m3u8
+				return c.JSON(out)
+			}
+		}
+		// Fall back: return raw stream info so client can use iframe
+		if single, ok := data["single"]; ok {
+			out["single"] = single
+		}
+		return c.JSON(out)
 	})
 
 	app.Get("/get_stream/:fid", func(c *fiber.Ctx) error {

@@ -51,9 +51,10 @@ func getRealIP(r *http.Request) string {
 // plain net/http handler because fiber's SendStream misbehaves under the
 // net/http adaptor.
 // videoRelaySem caps concurrent video relays so a classroom full of viewers
-// can't saturate the VPS's bandwidth all at once. Excess requests get a 503,
-// which the client's retry loop recovers from naturally.
-var videoRelaySem = make(chan struct{}, 6)
+// can't saturate the VPS's bandwidth all at once. Excess requests get a 503.
+// Increased from 6 to 60 to allow native browser <video> and <audio> tags
+// to comfortably fetch segments without hitting 503s on seek.
+var videoRelaySem = make(chan struct{}, 60)
 
 func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 	u := r.URL.Query().Get("url")
