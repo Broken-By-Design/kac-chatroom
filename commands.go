@@ -278,74 +278,298 @@ func runsText(node any) string {
 	return sb.String()
 }
 
-// streamResolveSem caps concurrent yt-dlp subprocesses to protect the host's
-// RAM/CPU from spikes when several video streams resolve at once.
-var streamResolveSem = make(chan struct{}, 2)
+// streamResolveSem caps concurrent yt-dlp subprocesses. Kept at 1 so the
+// Python process never stacks with itself under the container's soft memory
+// limit; the persistent cache + singleflight make a single slot sufficient.
+var streamResolveSem = make(chan struct{}, 1)
 
-// videoStreamCache avoids re-running yt-dlp (a heavy Python process) for the
-// same video within the TTL, so frontend retries are cheap. The cached URLs
-// are time-limited by YouTube (~6h); 30 minutes is a safe refresh window.
-var (
-	videoStreamCacheMu sync.Mutex
-	videoStreamCache   = map[string]videoStreamCacheEntry{}
-)
-
-type videoStreamCacheEntry struct {
-	info    map[string]any
-	expires time.Time
+// ytCredProfile is one optional set of YouTube credentials (cookies + optional
+// PO token). Profiles are loaded once at startup from env vars.
+type ytCredProfile struct {
+	label       string
+	cookiesFile string
+	poToken     string
+	visitorData string
 }
 
-// resolveVideoStreamInfo uses yt-dlp in simulate mode to fetch direct,
-// time-limited stream URLs for a video. Nothing is downloaded or stored.
-//
-// It prefers a 1080p H.264 video-only DASH stream paired with the best m4a
-// audio, which the client muxes via MediaSource. YouTube no longer offers
-// combined (video+audio) formats above 360p, so a "single" 360p URL is
-// returned as a fallback when no DASH pair is available.
-func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
-	videoStreamCacheMu.Lock()
-	if fresh {
-		delete(videoStreamCache, videoID)
-	} else if e, ok := videoStreamCache[videoID]; ok && time.Now().Before(e.expires) {
-		videoStreamCacheMu.Unlock()
-		return e.info
+// ytProfiles holds the optional A→B credential sets used for failover.
+var ytProfiles []ytCredProfile
+
+// ytCredHealth tracks the live status of each credential profile so the admin
+// panel can flag cookies/tokens that stopped working and swap them out.
+type ytCredHealthStatus struct {
+	Label       string    `json:"label"`
+	Enabled     bool      `json:"enabled"`
+	CookiesFile string    `json:"cookies_file,omitempty"`
+	HasPoToken  bool      `json:"has_po_token"`
+	Status      string    `json:"status"` // "ok" | "failed" | "untested"
+	Flagged     bool      `json:"flagged"`
+	LastError   string    `json:"last_error,omitempty"`
+	LastTested  time.Time `json:"last_tested,omitempty"`
+	FailStreak  int       `json:"fail_streak"`
+}
+
+var (
+	ytCredHealthMu sync.Mutex
+	ytCredHealth   = map[string]*ytCredHealthStatus{}
+)
+
+// recordCredResult marks a profile as having failed or succeeded on a resolve.
+func recordCredResult(label string, ok bool, errStr string) {
+	if label == "" {
+		return
 	}
-	videoStreamCacheMu.Unlock()
+	ytCredHealthMu.Lock()
+	defer ytCredHealthMu.Unlock()
+	h := ytCredHealth[label]
+	if h == nil {
+		return
+	}
+	h.LastTested = time.Now()
+	h.LastError = errStr
+	if ok {
+		h.Status = "ok"
+		h.Flagged = false
+		h.FailStreak = 0
+	} else {
+		h.Status = "failed"
+		h.FailStreak++
+		if h.FailStreak >= 2 {
+			h.Flagged = true
+		}
+	}
+}
 
-	streamResolveSem <- struct{}{}
-	defer func() { <-streamResolveSem }()
+// ytCredHealthList returns a snapshot of all configured profiles.
+func ytCredHealthList() []ytCredHealthStatus {
+	ytCredHealthMu.Lock()
+	defer ytCredHealthMu.Unlock()
+	out := make([]ytCredHealthStatus, 0, len(ytCredHealth))
+	for _, h := range ytCredHealth {
+		c := *h
+		out = append(out, c)
+	}
+	return out
+}
 
+// ytCredHealthReset clears flagging/failure state (call after swapping creds).
+func ytCredHealthReset() {
+	ytCredHealthMu.Lock()
+	defer ytCredHealthMu.Unlock()
+	for _, h := range ytCredHealth {
+		h.Status = "untested"
+		h.Flagged = false
+		h.LastError = ""
+		h.FailStreak = 0
+		h.LastTested = time.Time{}
+	}
+}
+
+// ytCredProbeVideo is a short, stable public video used to validate that a
+// credential set can still obtain playback on YouTube.
+const ytCredProbeVideo = "dQw4w9WgXcQ"
+
+// testYTCredentials actively probes each configured credential profile
+// against a known-good video and updates their health so the admin panel can
+// confirm fresh credentials work after swapping them out.
+func testYTCredentials() []ytCredHealthStatus {
+	for _, p := range ytProfiles {
+		attempt := ytResolveAttempt{
+			profileLabel: p.label,
+			cookiesFile:  p.cookiesFile,
+			extractorArg: "youtube:player_client=web",
+		}
+		if p.poToken != "" {
+			attempt.extractorArg = "youtube:player_client=web;po_token=web+" + p.poToken
+		}
+		// runYtdlpResolve already updates this profile's health from its own
+		// success/failure outcome; we just run it and then read the snapshot.
+		_ = runYtdlpResolve(ytCredProbeVideo, attempt)
+	}
+	return ytCredHealthList()
+}
+
+// loadYTCredentials reads optional YouTube credentials from the environment.
+// All vars are off-by-default; empty profile means credential-free operation.
+func loadYTCredentials() {
+	profile := func(label, cookiesEnv, potEnv, visEnv string) ytCredProfile {
+		pot := os.Getenv(potEnv)
+		if i := strings.Index(pot, "&"); i >= 0 {
+			pot = pot[:i] // strip &ump=1&srfvp=1 trailing params
+		}
+		return ytCredProfile{
+			label:       label,
+			cookiesFile: os.Getenv(cookiesEnv),
+			poToken:     pot,
+			visitorData: os.Getenv(visEnv),
+		}
+	}
+	var profs []ytCredProfile
+	if p := profile("Account A", "YT_COOKIES_FILE", "YT_PO_TOKEN", "YT_VISITOR_DATA"); p.cookiesFile != "" || p.poToken != "" {
+		profs = append(profs, p)
+	}
+	if p := profile("Account B", "YT_COOKIES_FILE2", "YT_PO_TOKEN2", "YT_VISITOR_DATA2"); p.cookiesFile != "" || p.poToken != "" {
+		profs = append(profs, p)
+	}
+	ytProfiles = profs
+
+	ytCredHealthMu.Lock()
+	ytCredHealth = map[string]*ytCredHealthStatus{}
+	for _, p := range ytProfiles {
+		ytCredHealth[p.label] = &ytCredHealthStatus{
+			Label:       p.label,
+			Enabled:     true,
+			CookiesFile: p.cookiesFile,
+			HasPoToken:  p.poToken != "",
+			Status:      "untested",
+		}
+	}
+	ytCredHealthMu.Unlock()
+}
+
+// ytResolveAttempt is one yt-dlp invocation configuration (credentials +
+// player client), tried in order until one returns a usable stream.
+type ytResolveAttempt struct {
+	profileLabel string
+	cookiesFile  string
+	extractorArg string
+}
+
+// resolveFlight dedups concurrent resolutions of the same videoID so a
+// classroom full of users clicking the same video shares one yt-dlp call.
+var (
+	resolveFlightMu sync.Mutex
+	resolveFlight   = map[string]chan map[string]any{}
+)
+
+// singleResolve runs fn once per videoID; concurrent callers wait for and
+// share its result.
+func singleResolve(videoID string, fn func() map[string]any) map[string]any {
+	resolveFlightMu.Lock()
+	if ch, ok := resolveFlight[videoID]; ok {
+		resolveFlightMu.Unlock()
+		return <-ch
+	}
+	ch := make(chan map[string]any, 1)
+	resolveFlight[videoID] = ch
+	resolveFlightMu.Unlock()
+
+	defer func() {
+		resolveFlightMu.Lock()
+		delete(resolveFlight, videoID)
+		resolveFlightMu.Unlock()
+	}()
+	res := fn()
+	ch <- res
+	return res
+}
+
+// buildResolveAttempts returns the ordered list of yt-dlp invocations:
+// anonymous with yt-dlp's default client first (fast and reliably yields a
+// playable DASH pair), then anonymous cross-client fallbacks, then optionally
+// credentialed accounts (cookies + PO token) as a last resort if anonymous is
+// bot-blocked. Credentialed "web" playback only exposes combined formats and is
+// slower, so it's tried after the anonymous paths.
+func buildResolveAttempts() []ytResolveAttempt {
+	var attempts []ytResolveAttempt
+
+	// 1) Anonymous, yt-dlp default player client (fastest, best formats).
+	attempts = append(attempts, ytResolveAttempt{extractorArg: ""})
+
+	// 2) Anonymous cross-client fallbacks.
+	for _, client := range []string{"web_embedded", "tv"} {
+		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
+	}
+
+	// 3) Credentialed accounts (PO token / cookies) as a last resort.
+	for _, p := range ytProfiles {
+		ea := "youtube:player_client=web"
+		if p.poToken != "" {
+			ea += ";po_token=web+" + p.poToken
+			// PO tokens for logged-in sessions are bound to the account and
+			// must NOT carry visitor_data. Only use visitor data when there
+			// are no cookies (anonymous session).
+			if p.visitorData != "" && p.cookiesFile == "" {
+				ea += ";visitor_data=" + p.visitorData
+			}
+		}
+		attempts = append(attempts, ytResolveAttempt{profileLabel: p.label, cookiesFile: p.cookiesFile, extractorArg: ea})
+	}
+
+	// 4) Credentialed web without a PO token (in case the token expired).
+	for _, p := range ytProfiles {
+		attempts = append(attempts, ytResolveAttempt{
+			profileLabel: p.label,
+			cookiesFile:  p.cookiesFile,
+			extractorArg: "youtube:player_client=web",
+		})
+	}
+
+	return attempts
+}
+
+// ytdlpInfo is the subset of yt-dlp's -j JSON output we consume.
+type ytdlpInfo struct {
+	URL              string `json:"url"`
+	Title            string `json:"title"`
+	Channel          string `json:"channel"`
+	Description      string `json:"description"`
+	RequestedFormats []struct {
+		URL    string `json:"url"`
+		VCodec string `json:"vcodec"`
+		ACodec string `json:"acodec"`
+	} `json:"requested_formats"`
+	Formats []struct {
+		URL    string `json:"url"`
+		VCodec string `json:"vcodec"`
+		ACodec string `json:"acodec"`
+		Height int    `json:"height"`
+	} `json:"formats"`
+}
+
+// runYtdlpResolve runs one yt-dlp -j invocation and returns the usable stream
+// info, or nil if nothing playable came back.
+func runYtdlpResolve(videoID string, attempt ytResolveAttempt) map[string]any {
 	ytdlp, err := exec.LookPath("yt-dlp")
 	if err != nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, ytdlp, "-j", "--no-warnings",
+	args := []string{"-j", "--no-warnings"}
+	if attempt.cookiesFile != "" {
+		args = append(args, "--cookies", attempt.cookiesFile)
+	}
+	if attempt.extractorArg != "" {
+		args = append(args, "--extractor-args", attempt.extractorArg)
+	}
+	args = append(args,
 		"-f", "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best",
 		"https://www.youtube.com/watch?v="+videoID)
+	cmd := exec.CommandContext(ctx, ytdlp, args...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		// Capture a meaningful error line for the admin panel. yt-dlp's stderr
+		// ends with "ERROR: ..." which usually explains the failure.
+		msg := strings.TrimSpace(stderr.String())
+		if i := strings.LastIndex(msg, "ERROR:"); i >= 0 {
+			msg = strings.TrimSpace(msg[i+len("ERROR:"):])
+		}
+		if len(msg) > 300 {
+			msg = msg[:300] + "..."
+		}
+		if msg != "" && attempt.profileLabel != "" {
+			recordCredResult(attempt.profileLabel, false, msg)
+		}
 		return nil
 	}
-	var info struct {
-		URL              string `json:"url"`
-		Title            string `json:"title"`
-		Channel          string `json:"channel"`
-		Description      string `json:"description"`
-		RequestedFormats []struct {
-			URL    string `json:"url"`
-			VCodec string `json:"vcodec"`
-			ACodec string `json:"acodec"`
-		} `json:"requested_formats"`
-		Formats []struct {
-			URL    string `json:"url"`
-			VCodec string `json:"vcodec"`
-			ACodec string `json:"acodec"`
-			Height int    `json:"height"`
-		} `json:"formats"`
-	}
+	var info ytdlpInfo
 	if json.Unmarshal(out, &info) != nil {
+		if attempt.profileLabel != "" {
+			recordCredResult(attempt.profileLabel, false, "unparseable yt-dlp output")
+		}
 		return nil
 	}
 	result := map[string]any{}
@@ -370,12 +594,15 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 			result["acodec"] = a.ACodec
 		}
 	}
-	if info.URL != "" && strings.Contains(info.URL, "googlevideo.com") {
+	if info.URL != "" && strings.Contains(info.URL, "googlevideo.com/videoplayback") {
 		result["single"] = info.URL
 	}
 	var bestSingleH int
 	for _, f := range info.Formats {
-		if f.URL != "" && f.VCodec != "none" && f.ACodec != "none" && strings.Contains(f.URL, "googlevideo.com") {
+		// Only direct videoplayback URLs are playable by the browser.
+		// HLS manifests (manifest.googlevideo.com) are excluded because
+		// <video> cannot play them natively outside Safari.
+		if f.URL != "" && f.VCodec != "none" && f.ACodec != "none" && strings.Contains(f.URL, "googlevideo.com/videoplayback") {
 			if best, ok := result["single"].(string); !ok || best == "" {
 				result["single"] = f.URL
 				bestSingleH = f.Height
@@ -386,12 +613,53 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 		}
 	}
 	if len(result) == 0 {
+		if attempt.profileLabel != "" {
+			recordCredResult(attempt.profileLabel, false, "no playable stream in yt-dlp output")
+		}
 		return nil
 	}
-	videoStreamCacheMu.Lock()
-	videoStreamCache[videoID] = videoStreamCacheEntry{info: result, expires: time.Now().Add(30 * time.Minute)}
-	videoStreamCacheMu.Unlock()
+	if attempt.profileLabel != "" {
+		recordCredResult(attempt.profileLabel, true, "")
+	}
 	return result
+}
+
+// resolveVideoStreamInfo uses yt-dlp in simulate mode to fetch direct,
+// time-limited stream URLs for a video. Nothing is downloaded or stored.
+//
+// It prefers a 1080p H.264 video-only DASH stream paired with the best m4a
+// audio, which the client muxes via MediaSource. YouTube no longer offers
+// combined (video+audio) formats above 360p, so a "single" 360p URL is
+// returned as a fallback when no DASH pair is available.
+func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
+	if !fresh {
+		if e, ok := streamCacheGet(videoID); ok {
+			if e.Failed {
+				return nil
+			}
+			return e.Info
+		}
+	} else {
+		streamCacheDelete(videoID)
+	}
+
+	return singleResolve(videoID, func() map[string]any {
+		streamResolveSem <- struct{}{}
+		defer func() { <-streamResolveSem }()
+
+		var result map[string]any
+		for _, attempt := range buildResolveAttempts() {
+			if result = runYtdlpResolve(videoID, attempt); result != nil {
+				break
+			}
+		}
+		if result == nil {
+			streamCachePutFailure(videoID)
+		} else {
+			streamCachePut(videoID, result)
+		}
+		return result
+	})
 }
 
 func parseCommand(message, nickname, timestamp string) {

@@ -23,7 +23,6 @@ var ChatApp = window.ChatApp || {};
      * @returns {string} The text with HTML links.
      */
     function linkify(text) {
-      return text;
         const urlRegex =
             /(?:(?:https?|ftp):\/\/)?(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
 

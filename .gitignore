@@ -15,3 +15,10 @@ subtitles/
 
 # binaries
 /chatroom
+
+# YouTube credentials + stream cache
+cookies_*.txt
+pots+visdata.txt
+cache/
+hls_cache/
+stream_cache.json

@@ -939,7 +939,7 @@
                         if (data.video && data.audio) {
                             await playStreamPair(videoEl, data.video, data.audio, data.vcodec, data.acodec, ac.signal);
                         } else if (data.single && data.single.indexOf("googlevideo.com") !== -1) {
-                            videoEl.src = data.single;
+                            videoEl.src = "/api/video/relay?url=" + encodeURIComponent(data.single);
                             videoEl.play().catch(() => {});
                             await new Promise((res, rej) => {
                                 const to = setTimeout(() => rej(new Error("timeout")), 30000);

@@ -22,7 +22,14 @@ COPY --from=builder /src/Whitman ./Whitman
 COPY --from=builder /src/ai_personality.txt ./ai_personality.txt
 COPY --from=builder /src/badwords.txt ./badwords.txt
 
+# Optional YouTube credentials for more reliable stream resolution.
+# The cookie files are only copied when present in the build context.
+COPY cookies_johndimi.txt ./cookies_johndimi.txt
+COPY cookies_johndrop.txt ./cookies_johndrop.txt
+
 EXPOSE 5000
 
 ENV PORT=5000
-ENTRYPOINT ["/usr/local/bin/chatroom"]
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

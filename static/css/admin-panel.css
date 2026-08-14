@@ -291,3 +291,83 @@ body {
     letter-spacing: 0.4px;
     color: #777;
 }
+
+/* YouTube stream credentials */
+
+.stream-creds {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 0.85rem;
+    color: #333;
+    background: #fff;
+    border: 1px solid #e3e7ef;
+    border-radius: 3px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+}
+
+.cred-row {
+    border-bottom: 1px solid #eef1f6;
+    padding-bottom: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.cred-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.cred-detail {
+    font-size: 0.75rem;
+    color: #777;
+}
+
+.cred-error {
+    font-size: 0.75rem;
+    color: #b91c1c;
+    background: #fef2f2;
+    border-left: 3px solid #dc2626;
+    padding: 0.3rem 0.5rem;
+    border-radius: 2px;
+    word-break: break-word;
+}
+
+.cred-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 0.15rem 0.45rem;
+    border-radius: 3px;
+    vertical-align: middle;
+}
+
+.cred-good {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.cred-warn {
+    background: #fef9c3;
+    color: #a16207;
+}
+
+.cred-bad {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.cred-untested {
+    background: #e5e7eb;
+    color: #4b5563;
+}
+
+.cred-standby {
+    background: #dbeafe;
+    color: #1d4ed8;
+}

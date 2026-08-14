@@ -49,6 +49,7 @@ func main() {
 	initState()
 	loadAIPersonality()
 	initRecommendQueries()
+	loadYTCredentials()
 	initTemplates()
 
 	db = connectDB()
@@ -76,7 +77,6 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/socket.io/", engineHandler)
 	mux.HandleFunc("/api/video/relay", handleVideoRelay)
-	mux.HandleFunc("/hls/", handleHLSFile)
 	mux.Handle("/", httpHandler)
 
 	fmt.Println("Chatroom server listening on 0.0.0.0:5000")
@@ -316,42 +316,6 @@ func setupRoutes(app *fiber.App) {
 			return c.JSON(fiber.Map{})
 		}
 		return c.JSON(data)
-	})
-
-	// /api/video/hls/:id — resolves stream URLs then transcodes to HLS via
-	// ffmpeg (stream copy, no re-encode). Returns the .m3u8 URL so the browser
-	// can seek natively. Falls back gracefully if ffmpeg is absent.
-	app.Get("/api/video/hls/:id", func(c *fiber.Ctx) error {
-		videoID := c.Params("id")
-		data := resolveVideoStreamInfo(videoID, c.Query("fresh") == "1")
-		if data == nil {
-			return c.JSON(fiber.Map{"error": "could not resolve stream"})
-		}
-		// Build metadata response regardless of HLS success
-		out := fiber.Map{}
-		if t, ok := data["title"]; ok {
-			out["title"] = t
-		}
-		if ch, ok := data["channel"]; ok {
-			out["channel"] = ch
-		}
-		if d, ok := data["description"]; ok {
-			out["description"] = d
-		}
-		videoURL, hasV := data["video"].(string)
-		audioURL, hasA := data["audio"].(string)
-		if hasV && hasA {
-			m3u8, err := startHLSTranscode(videoID, videoURL, audioURL)
-			if err == nil {
-				out["hls"] = m3u8
-				return c.JSON(out)
-			}
-		}
-		// Fall back: return raw stream info so client can use iframe
-		if single, ok := data["single"]; ok {
-			out["single"] = single
-		}
-		return c.JSON(out)
 	})
 
 	app.Get("/get_stream/:fid", func(c *fiber.Ctx) error {
@@ -692,6 +656,21 @@ func setupRoutes(app *fiber.App) {
 	app.Post("/admin/update-bans", adminRequired, func(c *fiber.Ctx) error {
 		syncBanListFromDB()
 		return c.JSON(fiber.Map{"message": "Ban list has been updated from the database."})
+	})
+
+	// YouTube credential health: lets an admin see when cookies/PO tokens stop
+	// working so they can be swapped out for fresh ones.
+	app.Get("/admin/stream-creds", adminRequired, func(c *fiber.Ctx) error {
+		return c.JSON(ytCredHealthList())
+	})
+
+	app.Post("/admin/stream-creds/reset", adminRequired, func(c *fiber.Ctx) error {
+		ytCredHealthReset()
+		return c.JSON(fiber.Map{"message": "Credential health flags have been reset."})
+	})
+
+	app.Post("/admin/stream-creds/test", adminRequired, func(c *fiber.Ctx) error {
+		return c.JSON(testYTCredentials())
 	})
 
 	app.Post("/admin/reset-bot-memory", adminRequired, func(c *fiber.Ctx) error {
