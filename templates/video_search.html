@@ -936,23 +936,15 @@
                         videoEl.playsInline = true;
                         player.appendChild(videoEl);
 
-                        if (data.video && data.audio) {
-                            await playStreamPair(videoEl, data.video, data.audio, data.vcodec, data.acodec, ac.signal);
-                        } else if (data.single && data.single.indexOf("googlevideo.com") !== -1) {
+                        // Prefer the combined "single" stream via a native <video>
+                        // (simple, robust, no MSE). The DASH+MediaSource path is more
+                        // capable (higher quality) but can hang on malformed boxes,
+                        // so it's only used when no single stream is available.
+                        if (data.single && data.single.indexOf("googlevideo.com") !== -1) {
                             videoEl.src = "/api/video/relay?url=" + encodeURIComponent(data.single);
-                            videoEl.play().catch(() => {});
-                            await new Promise((res, rej) => {
-                                const to = setTimeout(() => rej(new Error("timeout")), 30000);
-                                videoEl.addEventListener("canplay", () => {
-                                    clearTimeout(to);
-                                    setStatus("");
-                                    res();
-                                }, { once: true });
-                                videoEl.addEventListener("error", () => {
-                                    clearTimeout(to);
-                                    rej(new Error("stream error"));
-                                }, { once: true });
-                            });
+                            await playUntilCanPlay(videoEl, ac.signal);
+                        } else if (data.video && data.audio) {
+                            await withTimeout(playStreamPair(videoEl, data.video, data.audio, data.vcodec, data.acodec, ac.signal), 15000, ac.signal);
                         } else {
                             throw new Error("no stream");
                         }
@@ -973,6 +965,44 @@
                 playerTitle.textContent = r.title;
                 renderMeta({}, r.title);
                 setStatus("");
+            }
+
+            // Resolves when the <video> fires canplay, or rejects on error/timeout
+            // so a hung native playback doesn't lock up the page.
+            function playUntilCanPlay(videoEl, signal) {
+                return new Promise((res, rej) => {
+                    const to = setTimeout(() => rej(new Error("timeout")), 30000);
+                    const onPlay = () => {
+                        clearTimeout(to);
+                        signal.removeEventListener("abort", onAbort);
+                        res();
+                    };
+                    const onErr = () => {
+                        clearTimeout(to);
+                        signal.removeEventListener("abort", onAbort);
+                        rej(new Error("stream error"));
+                    };
+                    const onAbort = () => {
+                        clearTimeout(to);
+                        videoEl.removeEventListener("canplay", onPlay);
+                        videoEl.removeEventListener("error", onErr);
+                        rej(new Error("aborted"));
+                    };
+                    videoEl.addEventListener("canplay", onPlay, { once: true });
+                    videoEl.addEventListener("error", onErr, { once: true });
+                    signal.addEventListener("abort", onAbort);
+                    videoEl.play().catch(() => {});
+                });
+            }
+
+            // Races a promise against a timeout (honoring the abort signal) so a
+            // stuck MediaSource/segment-fetch can't hang the page forever.
+            function withTimeout(p, ms, signal) {
+                return new Promise((res, rej) => {
+                    const to = setTimeout(() => rej(new Error("timeout")), ms);
+                    p.then((v) => { clearTimeout(to); res(v); }).catch((e) => { clearTimeout(to); rej(e); });
+                    signal.addEventListener("abort", () => { clearTimeout(to); rej(new Error("aborted")); }, { once: true });
+                });
             }
 
             function concatBytes(a, b) {

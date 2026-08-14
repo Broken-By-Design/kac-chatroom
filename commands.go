@@ -394,6 +394,7 @@ func testYTCredentials() []ytCredHealthStatus {
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
 			extractorArg: "youtube:player_client=web",
+			format:       "best[height<=720]/best",
 		}
 		if p.poToken != "" {
 			attempt.extractorArg = "youtube:player_client=web;po_token=web+" + p.poToken
@@ -449,6 +450,7 @@ type ytResolveAttempt struct {
 	profileLabel string
 	cookiesFile  string
 	extractorArg string
+	format       string // if empty, a default strict DASH-preferring selector is used
 }
 
 // resolveFlight dedups concurrent resolutions of the same videoID so a
@@ -497,6 +499,12 @@ func buildResolveAttempts() []ytResolveAttempt {
 		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
 	}
 
+	// Credentialed "web" + PO-token sessions are rate-limited to combined
+	// formats only (no separate video/audio), so a strict DASH selector would
+	// error "Requested format is not available". Use a lenient selector that
+	// accepts whatever YouTube exposes for these sessions.
+	const credFormat = "best[height<=720]/best"
+
 	// 3) Credentialed accounts (PO token / cookies) as a last resort.
 	for _, p := range ytProfiles {
 		ea := "youtube:player_client=web"
@@ -509,7 +517,7 @@ func buildResolveAttempts() []ytResolveAttempt {
 				ea += ";visitor_data=" + p.visitorData
 			}
 		}
-		attempts = append(attempts, ytResolveAttempt{profileLabel: p.label, cookiesFile: p.cookiesFile, extractorArg: ea})
+		attempts = append(attempts, ytResolveAttempt{profileLabel: p.label, cookiesFile: p.cookiesFile, extractorArg: ea, format: credFormat})
 	}
 
 	// 4) Credentialed web without a PO token (in case the token expired).
@@ -518,6 +526,7 @@ func buildResolveAttempts() []ytResolveAttempt {
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
 			extractorArg: "youtube:player_client=web",
+			format:       credFormat,
 		})
 	}
 
@@ -559,8 +568,13 @@ func runYtdlpResolve(videoID string, attempt ytResolveAttempt) map[string]any {
 	if attempt.extractorArg != "" {
 		args = append(args, "--extractor-args", attempt.extractorArg)
 	}
+	format := attempt.format
+	if format == "" {
+		// Prefer a 1080p H.264 DASH pair + best m4a audio, then fall back.
+		format = "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best"
+	}
 	args = append(args,
-		"-f", "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best",
+		"-f", format,
 		"https://www.youtube.com/watch?v="+videoID)
 	cmd := exec.CommandContext(ctx, ytdlp, args...)
 	var stderr strings.Builder
