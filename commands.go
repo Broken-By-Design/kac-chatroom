@@ -292,6 +292,22 @@ type ytCredProfile struct {
 	visitorData string
 }
 
+// hasFiles reports whether this profile has at least a usable cookie file on
+// disk or a PO token. A configured-but-missing cookie file is treated as absent
+// so yt-dlp never fails on a phantom --cookies path.
+func (p ytCredProfile) hasFiles() bool {
+	if p.poToken != "" {
+		return true
+	}
+	if p.cookiesFile == "" {
+		return false
+	}
+	if _, err := os.Stat(p.cookiesFile); err == nil {
+		return true
+	}
+	return false
+}
+
 // ytProfiles holds the optional A→B credential sets used for failover.
 var ytProfiles []ytCredProfile
 
@@ -405,10 +421,10 @@ func loadYTCredentials() {
 		}
 	}
 	var profs []ytCredProfile
-	if p := profile("Account A", "YT_COOKIES_FILE", "YT_PO_TOKEN", "YT_VISITOR_DATA"); p.cookiesFile != "" || p.poToken != "" {
+	if p := profile("Account A", "YT_COOKIES_FILE", "YT_PO_TOKEN", "YT_VISITOR_DATA"); p.hasFiles() {
 		profs = append(profs, p)
 	}
-	if p := profile("Account B", "YT_COOKIES_FILE2", "YT_PO_TOKEN2", "YT_VISITOR_DATA2"); p.cookiesFile != "" || p.poToken != "" {
+	if p := profile("Account B", "YT_COOKIES_FILE2", "YT_PO_TOKEN2", "YT_VISITOR_DATA2"); p.hasFiles() {
 		profs = append(profs, p)
 	}
 	ytProfiles = profs
