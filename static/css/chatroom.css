@@ -633,3 +633,83 @@ body.drag-active::after {
     pointer-events: none;
     background-color: #000;
 }
+
+/* ---------- Narrow / embedded layout ----------
+   The chat is embedded in a ~320-350px side panel on the video lounge and
+   video search pages. These rules compact the composer and messages so the
+   UI stays readable and the input stays on one line at those widths. */
+
+@media (max-width: 480px) {
+    #messages {
+        padding: 12px 0 16px;
+    }
+
+    .msg {
+        gap: 6px;
+        padding: 5px 10px;
+    }
+
+    .msg-avatar {
+        width: 26px;
+        height: 26px;
+        font-size: 11px;
+    }
+
+    .msg-body {
+        max-width: 100%;
+    }
+
+    .msg-text {
+        font-size: 13px;
+        line-height: 1.45;
+        padding: 6px 10px;
+    }
+
+    .msg.system {
+        padding: 3px 10px;
+    }
+
+    .msg-img-link img {
+        max-width: min(300px, 74vw);
+        max-height: 30vh;
+    }
+
+    .typing {
+        padding: 4px 10px;
+        font-size: 11px;
+    }
+
+    .composer {
+        gap: 6px;
+        padding: 8px 10px;
+    }
+
+    .composer #input {
+        min-height: 36px;
+        max-height: 90px;
+        padding: 8px 10px;
+        font-size: 13px;
+        line-height: 18px;
+    }
+
+    .icon-btn {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        font-size: 18px;
+    }
+
+    .send-btn {
+        padding: 9px 13px;
+        font-size: 12px;
+    }
+
+    #pinned-message {
+        padding: 7px 12px;
+        font-size: 12px;
+    }
+
+    #dm-header {
+        padding: 8px 12px;
+    }
+}
