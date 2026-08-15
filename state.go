@@ -21,10 +21,25 @@ type UserOffense struct {
 
 // VideoSearchResult is a single YouTube hit returned by the video search API.
 type VideoSearchResult struct {
+	Title        string `json:"title"`
+	Channel      string `json:"channel"`
+	VideoID      string `json:"videoId"`
+	Description  string `json:"description"`
+	ChannelID    string `json:"channelId,omitempty"`
+	ChannelThumb string `json:"channelThumb,omitempty"`
+}
+
+// ChannelInfo is the metadata shown at the top of a channel page, parsed from
+// the channel's innertube browse response.
+type ChannelInfo struct {
+	ID          string `json:"id"`
 	Title       string `json:"title"`
-	Channel     string `json:"channel"`
-	VideoID     string `json:"videoId"`
-	Description string `json:"description"`
+	Thumb       string `json:"thumb"`
+	Banner      string `json:"banner,omitempty"`
+	Handle      string `json:"handle,omitempty"`
+	Subscribers string `json:"subscribers,omitempty"`
+	VideoCount  string `json:"videoCount,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // State is the thread-safe equivalent of utils/globals.py.

@@ -267,6 +267,12 @@
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                text-decoration: none;
+                display: block;
+            }
+
+            .card-channel:hover {
+                color: var(--text);
             }
 
             .card-desc {
@@ -693,11 +699,22 @@
                 const t = document.createElement("div");
                 t.className = "card-title";
                 t.textContent = r.title || "Untitled";
-                const ch = document.createElement("div");
-                ch.className = "card-channel";
-                ch.textContent = r.channel || "";
                 body.appendChild(t);
-                body.appendChild(ch);
+                if (r.channel || r.channelId) {
+                    const ch = document.createElement("a");
+                    ch.className = "card-channel";
+                    ch.textContent = r.channel || "";
+                    if (r.channelId) {
+                        ch.href = "/channel/" + encodeURIComponent(r.channelId);
+                        ch.title = "Go to channel";
+                        ch.addEventListener("click", (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.location.href = ch.href;
+                        });
+                    }
+                    body.appendChild(ch);
+                }
                 if (r.description) {
                     const d = document.createElement("div");
                     d.className = "card-desc";
@@ -1411,7 +1428,20 @@
                 }
             });
 
-            loadHome();
+            // Deep link from a channel page (or anywhere): /video-search-d6eca0?v=<id>
+            // jumps straight into the player for that video.
+            const params = new URLSearchParams(window.location.search);
+            const deepId = params.get("v");
+            if (deepId) {
+                loadHome();
+                play({
+                    videoId: deepId,
+                    title: params.get("title") || "",
+                    channel: params.get("channel") || "",
+                });
+            } else {
+                loadHome();
+            }
         </script>
     </body>
 </html>

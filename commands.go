@@ -237,6 +237,7 @@ func collectVideos(node any, out *[]VideoSearchResult) {
 				if byline, ok := vr["shortBylineText"].(map[string]any); ok {
 					result.Channel = runsText(byline["runs"])
 				}
+				collectChannelRef(vr, &result)
 				if dms, ok := vr["detailedMetadataSnippets"].([]any); ok && len(dms) > 0 {
 					if first, ok := dms[0].(map[string]any); ok {
 						if st, ok := first["snippetText"].(map[string]any); ok {
@@ -252,6 +253,24 @@ func collectVideos(node any, out *[]VideoSearchResult) {
 				*out = append(*out, result)
 			}
 		}
+		if lv, ok := v["lockupViewModel"].(map[string]any); ok {
+			if id, ok := lv["contentId"].(string); ok && id != "" {
+				result := VideoSearchResult{VideoID: id}
+				if md, ok := lv["metadata"].(map[string]any); ok {
+					if lmd, ok := md["lockupMetadataViewModel"].(map[string]any); ok {
+						if title, ok := lmd["title"].(map[string]any); ok {
+							if c, ok := title["content"].(string); ok {
+								result.Title = c
+							}
+						}
+						if mv, ok := lmd["metadata"].(map[string]any); ok {
+							result.Channel = textContent(mv)
+						}
+					}
+				}
+				*out = append(*out, result)
+			}
+		}
 		for _, child := range v {
 			collectVideos(child, out)
 		}
@@ -260,6 +279,82 @@ func collectVideos(node any, out *[]VideoSearchResult) {
 			collectVideos(child, out)
 		}
 	}
+}
+
+// collectChannelRef fills in ChannelID (and the channel avatar) on a
+// videoRenderer-derived result from the ownerText/avatar subtrees.
+func collectChannelRef(vr map[string]any, result *VideoSearchResult) {
+	if owner, ok := vr["ownerText"].(map[string]any); ok {
+		if runs, ok := owner["runs"].([]any); ok && len(runs) > 0 {
+			if run, ok := runs[0].(map[string]any); ok {
+				if ne, ok := run["navigationEndpoint"].(map[string]any); ok {
+					if be, ok := ne["browseEndpoint"].(map[string]any); ok {
+						if cid, ok := be["browseId"].(string); ok {
+							result.ChannelID = cid
+						}
+					}
+				}
+			}
+		}
+	}
+	if av, ok := vr["avatar"].(map[string]any); ok {
+		if dav, ok := av["decoratedAvatarViewModel"].(map[string]any); ok {
+			if a, ok := dav["avatar"].(map[string]any); ok {
+				if avm, ok := a["avatarViewModel"].(map[string]any); ok {
+					if img, ok := avm["image"].(map[string]any); ok {
+						result.ChannelThumb = bestThumb(img["sources"])
+					}
+				}
+			}
+		}
+	}
+}
+
+// bestThumb picks the largest-width thumbnail URL from an innertube
+// thumbnails/sources array, falling back to the last entry that has a URL.
+func bestThumb(n any) string {
+	list, ok := n.([]any)
+	if !ok {
+		return ""
+	}
+	var best string
+	var bestW float64
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		u, _ := m["url"].(string)
+		if u == "" {
+			continue
+		}
+		if w, ok := m["width"].(float64); ok && w > 0 {
+			if w >= bestW {
+				best, bestW = u, w
+			}
+		} else if best == "" {
+			best = u
+		}
+	}
+	if best == "" {
+		for _, item := range list {
+			if m, ok := item.(map[string]any); ok {
+				if u, ok := m["url"].(string); ok && u != "" {
+					best = u
+				}
+			}
+		}
+	}
+	return best
+}
+
+// textContent returns the plain "content" text of a text-in-content renderer
+// object if present.
+func textContent(m map[string]any) string {
+	if c, ok := m["content"].(string); ok {
+		return c
+	}
+	return ""
 }
 
 func runsText(node any) string {
@@ -276,6 +371,227 @@ func runsText(node any) string {
 		}
 	}
 	return sb.String()
+}
+
+// channelVideosTabParams is the innertube browse params that select a channel's
+// "Videos" tab (the standard value used by YouTube's web client).
+const channelVideosTabParams = "EgZ2aWRlb3PyBgQKAjoA"
+
+// firstMap returns the first map in the tree at the given key.
+func firstMap(node any, key string) map[string]any {
+	switch v := node.(type) {
+	case map[string]any:
+		if m, ok := v[key].(map[string]any); ok {
+			return m
+		}
+		for _, child := range v {
+			if r := firstMap(child, key); r != nil {
+				return r
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if r := firstMap(child, key); r != nil {
+				return r
+			}
+		}
+	}
+	return nil
+}
+
+// metadataPartTexts collects the plain "content" text of every
+// contentMetadataViewModel metadataParts array in the tree (the header line
+// like "48.4K subscribers · 81 videos").
+func metadataPartTexts(node any) []string {
+	var out []string
+	var walk func(any)
+	walk = func(n any) {
+		switch v := n.(type) {
+		case map[string]any:
+			if parts, ok := v["metadataParts"].([]any); ok {
+				for _, p := range parts {
+					if pm, ok := p.(map[string]any); ok {
+						if text, ok := pm["text"].(map[string]any); ok {
+							if c, ok := text["content"].(string); ok && c != "" {
+								out = append(out, c)
+							}
+						}
+					}
+				}
+			}
+			for _, child := range v {
+				walk(child)
+			}
+		case []any:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+	walk(node)
+	return out
+}
+
+// parseChannelInfo extracts channel metadata from a channel browse response.
+func parseChannelInfo(root any, browseID string) *ChannelInfo {
+	info := &ChannelInfo{ID: browseID}
+	if cmr := firstMap(root, "channelMetadataRenderer"); cmr != nil {
+		if t, ok := cmr["title"].(string); ok {
+			info.Title = t
+		}
+		if d, ok := cmr["description"].(string); ok {
+			info.Description = d
+		}
+		if av, ok := cmr["avatar"].(map[string]any); ok {
+			info.Thumb = bestThumb(av["thumbnails"])
+		}
+		if v, ok := cmr["vanityChannelUrl"].(string); ok {
+			if i := strings.LastIndex(v, "/"); i >= 0 {
+				info.Handle = v[i+1:]
+			}
+		}
+	}
+	for _, part := range metadataPartTexts(root) {
+		lower := strings.ToLower(part)
+		if info.Subscribers == "" && strings.Contains(lower, "subscriber") {
+			info.Subscribers = part
+		}
+		if info.VideoCount == "" && strings.Contains(lower, "video") {
+			info.VideoCount = part
+		}
+	}
+	if ibv := firstMap(root, "imageBannerViewModel"); ibv != nil {
+		if img, ok := ibv["image"].(map[string]any); ok {
+			info.Banner = bestThumb(img["sources"])
+		}
+	}
+	if info.Title == "" {
+		return nil
+	}
+	return info
+}
+
+// collectChannelVideos gathers videos only from the channel grid containers
+// (richGridRenderer on the first page, appendContinuationItemsAction on
+// continuation pages) so stray videoRenderers elsewhere in the response aren't
+// mixed into the channel's video list.
+func collectChannelVideos(node any, out *[]VideoSearchResult) {
+	switch v := node.(type) {
+	case map[string]any:
+		if _, ok := v["richGridRenderer"]; ok {
+			collectVideos(v, out)
+			return
+		}
+		if _, ok := v["appendContinuationItemsAction"]; ok {
+			collectVideos(v, out)
+			return
+		}
+		for _, child := range v {
+			collectChannelVideos(child, out)
+		}
+	case []any:
+		for _, child := range v {
+			collectChannelVideos(child, out)
+		}
+	}
+}
+
+// collectChannelToken returns the next-page continuation token, only looking
+// inside the channel grid containers so unrelated continuations (header menus,
+// etc.) are ignored.
+func collectChannelToken(node any, inGrid bool) string {
+	switch v := node.(type) {
+	case map[string]any:
+		if _, ok := v["richGridRenderer"]; ok {
+			inGrid = true
+		}
+		if _, ok := v["appendContinuationItemsAction"]; ok {
+			inGrid = true
+		}
+		if inGrid {
+			if cir, ok := v["continuationItemRenderer"].(map[string]any); ok {
+				if ep, ok := cir["continuationEndpoint"].(map[string]any); ok {
+					if cc, ok := ep["continuationCommand"].(map[string]any); ok {
+						if tok, ok := cc["token"].(string); ok && tok != "" {
+							return tok
+						}
+					}
+				}
+			}
+		}
+		for _, child := range v {
+			if t := collectChannelToken(child, inGrid); t != "" {
+				return t
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if t := collectChannelToken(child, inGrid); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
+// dedupeVideos removes repeated video IDs, keeping the first occurrence.
+func dedupeVideos(in []VideoSearchResult) []VideoSearchResult {
+	seen := map[string]bool{}
+	out := in[:0]
+	for _, r := range in {
+		if !seen[r.VideoID] {
+			seen[r.VideoID] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// channelVideosPage returns one page of a channel's videos. Pass a continuation
+// token (from a prior call) to fetch the next page; otherwise pass the channel
+// browseId.
+func channelVideosPage(browseID, continuation string) ([]VideoSearchResult, string) {
+	body := map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName": "WEB", "clientVersion": "2.20240801.00.00", "hl": "en", "gl": "US",
+			},
+		},
+	}
+	if continuation != "" {
+		body["continuation"] = continuation
+	} else {
+		body["browseId"] = browseID
+		body["params"] = channelVideosTabParams
+	}
+	root := innertubePost("browse", body)
+	if root == nil {
+		return nil, ""
+	}
+	var results []VideoSearchResult
+	collectChannelVideos(root, &results)
+	return dedupeVideos(results), collectChannelToken(root, false)
+}
+
+// channelPage fetches a channel's metadata plus the first page of its videos in
+// one browse request.
+func channelPage(browseID string) (*ChannelInfo, []VideoSearchResult, string) {
+	root := innertubePost("browse", map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName": "WEB", "clientVersion": "2.20240801.00.00", "hl": "en", "gl": "US",
+			},
+		},
+		"browseId": browseID,
+		"params":   channelVideosTabParams,
+	})
+	if root == nil {
+		return nil, nil, ""
+	}
+	info := parseChannelInfo(root, browseID)
+	var results []VideoSearchResult
+	collectChannelVideos(root, &results)
+	return info, dedupeVideos(results), collectChannelToken(root, false)
 }
 
 // streamResolveSem caps concurrent yt-dlp subprocesses. Kept at 1 so the

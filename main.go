@@ -289,6 +289,31 @@ func setupRoutes(app *fiber.App) {
 		return render(c, "video_search.html", map[string]any{"nickname": nickname})
 	})
 
+	app.Get("/channel/:id", func(c *fiber.Ctx) error {
+		sess := getSession(c)
+		nickname := sess.Nickname
+		if nickname == "" {
+			nickname = "Guest"
+		}
+		return render(c, "channel.html", map[string]any{"nickname": nickname, "channelId": c.Params("id")})
+	})
+
+	app.Get("/api/channel/:id", func(c *fiber.Ctx) error {
+		info, videos, next := channelPage(c.Params("id"))
+		if videos == nil {
+			videos = []VideoSearchResult{}
+		}
+		return c.JSON(fiber.Map{"info": info, "videos": videos, "continuation": next})
+	})
+
+	app.Get("/api/channel/:id/videos", func(c *fiber.Ctx) error {
+		videos, next := channelVideosPage(c.Params("id"), c.Query("continuation"))
+		if videos == nil {
+			videos = []VideoSearchResult{}
+		}
+		return c.JSON(fiber.Map{"videos": videos, "continuation": next})
+	})
+
 	app.Get("/clock-d6eca0", func(c *fiber.Ctx) error {
 		return render(c, "clock.html", nil)
 	})
