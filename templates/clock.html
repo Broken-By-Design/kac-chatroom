@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>New Tab</title>
+        <style>
+            :root {
+                color-scheme: dark;
+                --bg: #0b0e14;
+                --surface: #12161f;
+                --surface-2: #1a2130;
+                --border: #232c3d;
+                --text: #e8ebf2;
+                --muted: #8f99ab;
+                --accent: #7ba7ff;
+                --accent-2: #6a5cff;
+                --danger: #ff6b81;
+                --ok: #5eead4;
+                --lunch: #ffc15e;
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            html,
+            body {
+                height: 100%;
+            }
+
+            body {
+                margin: 0;
+                font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto,
+                    Helvetica, Arial, sans-serif;
+                color: var(--text);
+                background:
+                    radial-gradient(1200px 600px at 80% -10%, rgba(123, 167, 255, 0.08), transparent 60%),
+                    radial-gradient(900px 500px at 0% 110%, rgba(106, 92, 255, 0.07), transparent 60%),
+                    var(--bg);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                min-height: 100vh;
+            }
+
+            .clock-page {
+                width: 100%;
+                max-width: 680px;
+                margin: 0 auto;
+                padding: 26px 18px 32px;
+                display: flex;
+                flex-direction: column;
+                min-height: 100vh;
+            }
+
+            .clock-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-bottom: 28px;
+            }
+
+            .clock-main {
+                flex: 1 1 auto;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 20px;
+            }
+
+            .clock-table-wrap {
+                width: 100%;
+                max-width: 620px;
+            }
+
+            .clock-date {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 15px;
+                color: var(--muted);
+                letter-spacing: 0.4px;
+                font-variant-numeric: tabular-nums;
+            }
+
+            .schedule-picker {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                color: var(--muted);
+            }
+
+            .schedule-picker select {
+                background: var(--surface-2);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 7px 10px;
+                color: var(--text);
+                font-size: 13px;
+                font-family: inherit;
+                max-width: 260px;
+            }
+
+            .schedule-picker select:focus {
+                border-color: var(--accent);
+            }
+
+            .schedule-picker select:focus-visible,
+            .fs-btn:focus-visible {
+                outline: 2px solid var(--accent);
+                outline-offset: 2px;
+            }
+
+            .clock-controls {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                flex-wrap: wrap;
+            }
+
+            .time-toggle {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                font-variant-numeric: tabular-nums;
+                color: var(--muted);
+                cursor: pointer;
+                user-select: none;
+            }
+
+            .time-toggle input {
+                display: none;
+            }
+
+            .toggle-track {
+                position: relative;
+                width: 34px;
+                height: 18px;
+                background: var(--surface-2);
+                border: 1px solid var(--border);
+                border-radius: 999px;
+                transition: background 0.2s;
+            }
+
+            .toggle-thumb {
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                width: 12px;
+                height: 12px;
+                background: var(--muted);
+                border-radius: 50%;
+                transition: left 0.2s, background 0.2s;
+            }
+
+            .time-toggle input:checked ~ .toggle-track {
+                background: var(--accent);
+                border-color: var(--accent);
+            }
+
+            .time-toggle input:checked ~ .toggle-track .toggle-thumb {
+                left: 18px;
+                background: #0b0e14;
+            }
+
+            .fs-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 32px;
+                height: 32px;
+                padding: 0;
+                background: var(--surface-2);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                color: var(--muted);
+                cursor: pointer;
+                transition: color 0.15s, border-color 0.15s, background 0.15s;
+            }
+
+            .fs-btn:hover {
+                color: var(--text);
+                border-color: var(--accent);
+            }
+
+            .fs-btn.active {
+                color: var(--accent);
+                border-color: var(--accent);
+                background: rgba(123, 167, 255, 0.12);
+            }
+
+            .clock-card {
+                width: 100%;
+                max-width: 620px;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                padding: 32px 28px 26px;
+                text-align: center;
+                box-shadow:
+                    0 0 0 1px rgba(123, 167, 255, 0.04),
+                    0 10px 40px rgba(0, 0, 0, 0.35),
+                    0 0 80px rgba(123, 167, 255, 0.06);
+            }
+
+            .clock-state {
+                font-size: 14px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 1.2px;
+                color: var(--accent);
+                margin-bottom: 14px;
+            }
+
+            .clock-digits {
+                font-size: clamp(56px, 15vw, 104px);
+                font-weight: 800;
+                line-height: 1;
+                font-variant-numeric: tabular-nums;
+                letter-spacing: 1px;
+                color: var(--text);
+                text-shadow: 0 0 40px rgba(123, 167, 255, 0.25);
+                margin-bottom: 10px;
+                white-space: nowrap;
+            }
+
+            :fullscreen .clock-digits,
+            :-webkit-full-screen .clock-digits {
+                font-size: clamp(64px, 20vw, 170px);
+            }
+
+            :fullscreen .clock-card,
+            :-webkit-full-screen .clock-card {
+                border-color: rgba(123, 167, 255, 0.25);
+            }
+
+            .clock-sub {
+                font-size: 15px;
+                color: var(--muted);
+                margin-bottom: 18px;
+            }
+            .clock-sub strong {
+                color: var(--text);
+                font-weight: 600;
+                font-variant-numeric: tabular-nums;
+            }
+            .clock-sub.warn strong {
+                color: var(--lunch);
+            }
+            .clock-sub.crit strong {
+                color: var(--danger);
+            }
+
+            .clock-digits .meridiem {
+                font-size: 0.55em;
+                font-weight: 700;
+                color: var(--muted);
+                letter-spacing: 1px;
+                margin-left: 10px;
+                vertical-align: baseline;
+            }
+
+            .clock-track {
+                height: 8px;
+                background: var(--surface-2);
+                border-radius: 999px;
+                overflow: hidden;
+                margin-bottom: 14px;
+            }
+
+            .clock-fill {
+                height: 100%;
+                width: 0%;
+                background: linear-gradient(90deg, var(--accent), var(--accent-2));
+                border-radius: 999px;
+                transition: width 0.4s linear, background 0.4s linear;
+            }
+            .clock-fill.warn {
+                background: linear-gradient(90deg, #ffb35e, #ff9d5e);
+            }
+            .clock-fill.crit {
+                background: linear-gradient(90deg, #ff6b81, #ff2f6b);
+            }
+
+            .clock-eta {
+                font-size: 14px;
+                color: var(--muted);
+                font-variant-numeric: tabular-nums;
+            }
+
+            .clock-day {
+                text-align: center;
+                font-size: 13px;
+                color: var(--muted);
+            }
+
+            .schedule-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14px;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                overflow: hidden;
+            }
+
+            .schedule-table th,
+            .schedule-table td {
+                padding: 10px 14px;
+                text-align: left;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .schedule-table th {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                color: var(--muted);
+                background: var(--surface-2);
+            }
+
+            .schedule-table tr:last-child td {
+                border-bottom: none;
+            }
+
+            .schedule-table td.now {
+                color: var(--accent);
+                font-weight: 600;
+            }
+            .schedule-table td.lunch {
+                color: var(--lunch);
+            }
+            .schedule-table tr.active {
+                background: rgba(123, 167, 255, 0.08);
+            }
+            .schedule-table tr.active td {
+                color: var(--text);
+                font-weight: 600;
+            }
+            .schedule-table tr.next {
+                background: rgba(94, 234, 212, 0.06);
+            }
+            .schedule-table tbody tr:not(.active):not(.next):hover {
+                background: rgba(123, 167, 255, 0.05);
+            }
+            .schedule-table tr.active td:first-child {
+                box-shadow: inset 3px 0 0 var(--accent);
+            }
+            .schedule-table tr.next td:first-child {
+                box-shadow: inset 3px 0 0 var(--ok);
+            }
+
+            .schedule-table .tm {
+                font-variant-numeric: tabular-nums;
+                color: var(--muted);
+                text-align: right;
+            }
+            .schedule-table tr.active .tm {
+                color: var(--accent);
+            }
+            .schedule-table td.lunch.tm {
+                color: var(--lunch);
+            }
+
+            .badge {
+                display: inline-block;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                padding: 2px 6px;
+                border-radius: 6px;
+                background: var(--accent);
+                color: #0b0e14;
+                vertical-align: middle;
+                margin-left: 8px;
+            }
+            .badge.next {
+                background: var(--ok);
+            }
+
+            #dvdBg {
+                position: fixed;
+                inset: 0;
+                z-index: -1;
+                overflow: hidden;
+                pointer-events: none;
+            }
+
+            .dvd-logo {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 44px;
+                height: 44px;
+                background: currentColor;
+                box-shadow: 0 0 28px currentColor;
+                will-change: transform;
+            }
+
+        </style>
+    </head>
+    <body>
+        <div id="dvdBg" aria-hidden="true"></div>
+        <div class="clock-page">
+            <header class="clock-header">
+                <div class="clock-date">
+                    <span id="dateLabel"></span>
+                </div>
+                <div class="clock-controls">
+                    <label class="schedule-picker" for="scheduleSelect">
+                        Schedule
+                        <select id="scheduleSelect"></select>
+                    </label>
+                    <label class="time-toggle" for="hourToggle">
+                        <span>12h</span>
+                        <input type="checkbox" id="hourToggle" />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span>24h</span>
+                    </label>
+                    <button
+                        id="fullscreenBtn"
+                        class="fs-btn"
+                        type="button"
+                        title="Toggle fullscreen"
+                        aria-label="Toggle fullscreen"
+                    ></button>
+                </div>
+            </header>
+
+            <main class="clock-main">
+                <div class="clock-card">
+                    <div class="clock-state" id="stateLabel"></div>
+                    <div class="clock-digits" id="clockTime">00:00:00</div>
+                    <div class="clock-sub" id="subText"></div>
+                    <div class="clock-track"><div class="clock-fill" id="progressFill"></div></div>
+                    <div class="clock-eta" id="etaText"></div>
+                </div>
+
+                <div class="clock-day" id="dayLabel"></div>
+
+                <div class="clock-table-wrap">
+                    <table class="schedule-table" id="scheduleTable">
+                <thead>
+                    <tr>
+                        <th>Block</th>
+                        <th class="tm">Start</th>
+                        <th class="tm">End</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+                </table>
+                </div>
+            </main>
+        </div>
+
+        <script>
+            document.title = "New Tab";
+
+            var SCHEDULE_TZ = "America/Chicago";
+            var STORAGE_KEY = "clockScheduleId";
+            var USE24_KEY = "clockUse24";
+            var use24 = localStorage.getItem(USE24_KEY) === "1";
+
+            var SCHEDULES = [
+                {
+                    id: "wadv-lunchA",
+                    name: "1:50 Dismissal (w/ Advisory) \u00b7 Lunch A",
+                    blocks: [
+                        ["Period 1", "08:05", "09:10"],
+                        ["Advisory", "09:15", "09:50"],
+                        ["Period 2", "09:55", "11:00"],
+                        ["Lunch A", "11:00", "11:30"],
+                        ["Period 3", "11:35", "12:40"],
+                        ["Period 4", "12:45", "13:50"]
+                    ]
+                },
+                {
+                    id: "wadv-lunchB",
+                    name: "1:50 Dismissal (w/ Advisory) \u00b7 Lunch B",
+                    blocks: [
+                        ["Period 1", "08:05", "09:10"],
+                        ["Advisory", "09:15", "09:50"],
+                        ["Period 2", "09:55", "11:00"],
+                        ["Period 3", "11:05", "12:10"],
+                        ["Lunch B", "12:10", "12:40"],
+                        ["Period 4", "12:45", "13:50"]
+                    ]
+                },
+                {
+                    id: "normal-lunchA",
+                    name: "Normal Day \u00b7 Lunch A",
+                    blocks: [
+                        ["Period 1", "08:05", "09:25"],
+                        ["Advisory", "09:30", "10:05"],
+                        ["Period 2", "10:10", "11:30"],
+                        ["Lunch A", "11:30", "12:00"],
+                        ["Period 3", "12:05", "13:25"],
+                        ["Period 4", "13:30", "14:50"]
+                    ]
+                },
+                {
+                    id: "normal-lunchB",
+                    name: "Normal Day \u00b7 Lunch B",
+                    blocks: [
+                        ["Period 1", "08:05", "09:25"],
+                        ["Advisory", "09:30", "10:05"],
+                        ["Period 2", "10:10", "11:30"],
+                        ["Period 3", "11:35", "12:55"],
+                        ["Lunch B", "12:55", "13:25"],
+                        ["Period 4", "13:30", "14:50"]
+                    ]
+                },
+                {
+                    id: "early-lunchA",
+                    name: "Early Dismissal \u00b7 Lunch A",
+                    blocks: [
+                        ["Period 1", "08:05", "09:20"],
+                        ["Period 2", "09:25", "10:40"],
+                        ["Lunch A", "10:40", "11:10"],
+                        ["Period 3", "11:15", "12:30"],
+                        ["Period 4", "12:35", "13:50"]
+                    ]
+                },
+                {
+                    id: "early-lunchB",
+                    name: "Early Dismissal \u00b7 Lunch B",
+                    blocks: [
+                        ["Period 1", "08:05", "09:20"],
+                        ["Period 2", "09:25", "10:40"],
+                        ["Period 3", "10:45", "12:00"],
+                        ["Lunch B", "12:00", "12:30"],
+                        ["Period 4", "12:35", "13:50"]
+                    ]
+                }
+            ];
+
+            var stateLabel = document.getElementById("stateLabel");
+            var clockTimeEl = document.getElementById("clockTime");
+            var subTextEl = document.getElementById("subText");
+            var progressFill = document.getElementById("progressFill");
+            var etaTextEl = document.getElementById("etaText");
+            var dateLabelEl = document.getElementById("dateLabel");
+            var dayLabelEl = document.getElementById("dayLabel");
+            var scheduleSelect = document.getElementById("scheduleSelect");
+            var scheduleBody = document.getElementById("scheduleTable").querySelector("tbody");
+            var hourToggle = document.getElementById("hourToggle");
+
+            var schedule = SCHEDULES[0];
+
+            function pad(n) {
+                return String(n).padStart(2, "0");
+            }
+
+            // Returns the current wall-clock in the school timezone.
+            function chicagoNow() {
+                var parts = {};
+                new Intl.DateTimeFormat("en-US", {
+                    timeZone: SCHEDULE_TZ,
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: false,
+                    weekday: "short"
+                })
+                    .formatToParts(new Date())
+                    .forEach(function (p) {
+                        parts[p.type] = p.value;
+                    });
+                var hour = Number(parts.hour);
+                if (hour === 24) {
+                    hour = 0;
+                }
+                return {
+                    date: new Date(
+                        Number(parts.year),
+                        Number(parts.month) - 1,
+                        Number(parts.day),
+                        hour,
+                        Number(parts.minute),
+                        Number(parts.second)
+                    ),
+                    year: Number(parts.year),
+                    month: Number(parts.month),
+                    day: Number(parts.day),
+                    hour: hour,
+                    minute: Number(parts.minute),
+                    second: Number(parts.second),
+                    weekday: parts.weekday,
+                    weekdayNum: new Date(
+                        Number(parts.year),
+                        Number(parts.month) - 1,
+                        Number(parts.day)
+                    ).getDay()
+                };
+            }
+
+            function secondsIn(hm) {
+                var parts = hm.split(":");
+                return Number(parts[0]) * 3600 + Number(parts[1]) * 60;
+            }
+
+            function fmtTime(hm) {
+                var parts = hm.split(":");
+                var h = Number(parts[0]);
+                if (use24) {
+                    return pad(h) + ":" + parts[1];
+                }
+                var ap = h >= 12 ? "PM" : "AM";
+                var h12 = h % 12 === 0 ? 12 : h % 12;
+                return h12 + ":" + parts[1] + " " + ap;
+            }
+
+            function fmtClockTime(h, m, s) {
+                if (use24) {
+                    return pad(h) + ":" + pad(m) + ":" + pad(s);
+                }
+                var ap = h >= 12 ? "PM" : "AM";
+                var h12 = h % 12 === 0 ? 12 : h % 12;
+                return (
+                    h12 +
+                    ":" +
+                    pad(m) +
+                    ":" +
+                    pad(s) +
+                    ' <span class="meridiem">' +
+                    ap +
+                    "</span>"
+                );
+            }
+
+            function fmtDur(totalSec) {
+                totalSec = Math.max(0, Math.floor(totalSec));
+                var d = Math.floor(totalSec / 86400);
+                var h = Math.floor((totalSec % 86400) / 3600);
+                var m = Math.floor((totalSec % 3600) / 60);
+                var s = totalSec % 60;
+                if (d > 0) {
+                    return d + "d " + pad(h) + ":" + pad(m) + ":" + pad(s);
+                }
+                if (h > 0) {
+                    return pad(h) + ":" + pad(m) + ":" + pad(s);
+                }
+                return pad(m) + ":" + pad(s);
+            }
+
+            function fmtDate(d) {
+                var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                return days[d.getDay()] + ", " + months[d.getMonth()] + " " + d.getDate();
+            }
+
+            function setClock(now) {
+                clockTimeEl.innerHTML = fmtClockTime(now.hour, now.minute, now.second);
+            }
+
+            function applyUrgency(secs) {
+                var crit = secs < 60;
+                var warn = !crit && secs < 300;
+                subTextEl.classList.toggle("crit", crit);
+                subTextEl.classList.toggle("warn", warn);
+                progressFill.classList.toggle("crit", crit);
+                progressFill.classList.toggle("warn", warn);
+            }
+
+            function setProgress(frac) {
+                progressFill.style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + "%";
+            }
+
+            function nextSchoolStart(now) {
+                var candidate = new Date(now.year, now.month - 1, now.day, 8, 5, 0);
+                if (candidate.getDay() === 0) {
+                    candidate.setDate(candidate.getDate() + 1);
+                } else if (candidate.getDay() === 6) {
+                    candidate.setDate(candidate.getDate() + 2);
+                }
+                while (
+                    candidate.getDay() === 0 ||
+                    candidate.getDay() === 6 ||
+                    candidate - now.date <= 0
+                ) {
+                    candidate.setDate(candidate.getDate() + 1);
+                }
+                return candidate;
+            }
+
+            function renderScheduleTable() {
+                var now = chicagoNow();
+                var nowSec = now.hour * 3600 + now.minute * 60 + now.second;
+                var blocks = schedule.blocks;
+                var nextIndex = -1;
+                for (var i = 0; i < blocks.length - 1; i++) {
+                    if (
+                        nowSec >= secondsIn(blocks[i][2]) &&
+                        nowSec < secondsIn(blocks[i + 1][1])
+                    ) {
+                        nextIndex = i + 1;
+                        break;
+                    }
+                }
+                var html = "";
+                blocks.forEach(function (b, i) {
+                    var start = secondsIn(b[1]);
+                    var end = secondsIn(b[2]);
+                    var isNow = nowSec >= start && nowSec < end;
+                    var isNext = i === nextIndex;
+                    var cls = [];
+                    if (isNow) {
+                        cls.push("active");
+                    } else if (isNext) {
+                        cls.push("next");
+                    }
+                    var isLunch = b[0].toLowerCase().indexOf("lunch") !== -1;
+                    html +=
+                        '<tr' +
+                        (cls.length ? ' class="' + cls.join(" ") + '"' : "") +
+                        "><td" +
+                        (isLunch ? ' class="lunch"' : "") +
+                        ">" +
+                        b[0] +
+                        (isNow ? '<span class="badge">NOW</span>' : "") +
+                        (isNext ? '<span class="badge next">NEXT</span>' : "") +
+                        "</td><td class=\"tm" +
+                        (isLunch ? " lunch" : "") +
+                        "\">" +
+                        fmtTime(b[1]) +
+                        "</td><td class=\"tm" +
+                        (isLunch ? " lunch" : "") +
+                        "\">" +
+                        fmtTime(b[2]) +
+                        "</td></tr>";
+                });
+                scheduleBody.innerHTML = html;
+            }
+
+            function tick() {
+                var now = chicagoNow();
+                var nowSec = now.hour * 3600 + now.minute * 60 + now.second;
+                dateLabelEl.textContent = fmtDate(now.date);
+                setClock(now);
+                dayLabelEl.textContent = "Today\u2019s schedule: " + schedule.name;
+
+                var weekend = now.weekdayNum === 0 || now.weekdayNum === 6;
+                if (weekend) {
+                    var nxt = nextSchoolStart(now);
+                    stateLabel.textContent = "Weekend";
+                    subTextEl.innerHTML = "No school today.";
+                    setProgress(0);
+                    etaTextEl.textContent =
+                        "Next school day: " +
+                        fmtDate(nxt) +
+                        " at " +
+                        fmtTime("08:05") +
+                        " (in " +
+                        fmtDur((nxt - now.date) / 1000) +
+                        ")";
+                    applyUrgency((nxt - now.date) / 1000);
+                    renderScheduleTable();
+                    return;
+                }
+
+                var blocks = schedule.blocks;
+                var first = blocks[0];
+                var last = blocks[blocks.length - 1];
+
+                if (nowSec < secondsIn(first[1])) {
+                    stateLabel.textContent = "Before school";
+                    subTextEl.innerHTML =
+                        "Starts at <strong>" +
+                        fmtTime(first[1]) +
+                        "</strong> in " +
+                        fmtDur(secondsIn(first[1]) - nowSec);
+                    setProgress(0);
+                    etaTextEl.textContent = "First up: " + first[0];
+                    applyUrgency(secondsIn(first[1]) - nowSec);
+                    renderScheduleTable();
+                    return;
+                }
+
+                if (nowSec >= secondsIn(last[2])) {
+                    var nxt = nextSchoolStart(now);
+                    stateLabel.textContent = "School\u2019s out";
+                    subTextEl.innerHTML =
+                        "Dismissed at <strong>" + fmtTime(last[2]) + "</strong>";
+                    setProgress(1);
+                    etaTextEl.textContent =
+                        "Next school day: " +
+                        fmtDate(nxt) +
+                        " at " +
+                        fmtTime("08:05") +
+                        " (in " +
+                        fmtDur((nxt - now.date) / 1000) +
+                        ")";
+                    applyUrgency((nxt - now.date) / 1000);
+                    renderScheduleTable();
+                    return;
+                }
+
+                var current = null;
+                var nextBlock = null;
+                var passing = false;
+                for (var i = 0; i < blocks.length; i++) {
+                    var b = blocks[i];
+                    var nb = blocks[i + 1] || null;
+                    if (nowSec >= secondsIn(b[1]) && nowSec < secondsIn(b[2])) {
+                        current = b;
+                        nextBlock = nb;
+                        break;
+                    }
+                    if (nb && nowSec >= secondsIn(b[2]) && nowSec < secondsIn(nb[1])) {
+                        current = b;
+                        nextBlock = nb;
+                        passing = true;
+                        break;
+                    }
+                }
+
+                if (current) {
+                    var startSec = secondsIn(current[1]);
+                    var endSec = secondsIn(current[2]);
+                    if (passing) {
+                        var nbStart = secondsIn(nextBlock[1]);
+                        stateLabel.textContent = "Passing period";
+                        subTextEl.innerHTML =
+                            "Next: <strong>" +
+                            nextBlock[0] +
+                            "</strong> at " +
+                            fmtTime(nextBlock[1]) +
+                            " in " +
+                            fmtDur(nbStart - nowSec);
+                        setProgress((nowSec - endSec) / (nbStart - endSec));
+                        etaTextEl.textContent =
+                            nextBlock[0] + " until " + fmtTime(nextBlock[2]);
+                        applyUrgency(nbStart - nowSec);
+                    } else {
+                        stateLabel.textContent = current[0];
+                        subTextEl.innerHTML =
+                            "<strong>" +
+                            fmtDur(endSec - nowSec) +
+                            "</strong> left \u00b7 ends at " +
+                            fmtTime(current[2]);
+                        setProgress((nowSec - startSec) / (endSec - startSec));
+                        applyUrgency(endSec - nowSec);
+                        if (nextBlock) {
+                            etaTextEl.textContent =
+                                "Next: " +
+                                nextBlock[0] +
+                                " at " +
+                                fmtTime(nextBlock[1]);
+                        } else {
+                            etaTextEl.textContent =
+                                "Dismissal at " + fmtTime(current[2]);
+                        }
+                    }
+                }
+                renderScheduleTable();
+            }
+
+            function populateSelect() {
+                var saved = localStorage.getItem(STORAGE_KEY);
+                SCHEDULES.forEach(function (s) {
+                    var opt = document.createElement("option");
+                    opt.value = s.id;
+                    opt.textContent = s.name;
+                    scheduleSelect.appendChild(opt);
+                });
+                var selected = SCHEDULES[0];
+                SCHEDULES.forEach(function (s) {
+                    if (s.id === saved) {
+                        selected = s;
+                    }
+                });
+                scheduleSelect.value = selected.id;
+                schedule = selected;
+            }
+
+            scheduleSelect.addEventListener("change", function () {
+                SCHEDULES.forEach(function (s) {
+                    if (s.id === scheduleSelect.value) {
+                        schedule = s;
+                    }
+                });
+                localStorage.setItem(STORAGE_KEY, schedule.id);
+                scheduleSelect.blur();
+                tick();
+            });
+
+            hourToggle.checked = use24;
+            hourToggle.addEventListener("change", function () {
+                use24 = hourToggle.checked;
+                localStorage.setItem(USE24_KEY, use24 ? "1" : "0");
+                tick();
+            });
+
+            // --- Fullscreen toggle ---
+            var fsBtn = document.getElementById("fullscreenBtn");
+            var fsExpandIcon =
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+            var fsShrinkIcon =
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
+
+            function isFullscreen() {
+                return !!(
+                    document.fullscreenElement || document.webkitFullscreenElement
+                );
+            }
+
+            function syncFsIcon() {
+                if (!fsBtn) {
+                    return;
+                }
+                var on = isFullscreen();
+                fsBtn.classList.toggle("active", on);
+                fsBtn.innerHTML = on ? fsShrinkIcon : fsExpandIcon;
+            }
+
+            if (fsBtn && fsBtn.addEventListener) {
+                fsBtn.addEventListener("click", function () {
+                    if (isFullscreen()) {
+                        if (document.exitFullscreen) {
+                            document.exitFullscreen();
+                        } else if (document.webkitExitFullscreen) {
+                            document.webkitExitFullscreen();
+                        }
+                    } else {
+                        var el = document.documentElement || document.body;
+                        if (el && el.requestFullscreen) {
+                            el.requestFullscreen();
+                        } else if (el && el.webkitRequestFullscreen) {
+                            el.webkitRequestFullscreen();
+                        }
+                    }
+                });
+            }
+            if (document.addEventListener) {
+                document.addEventListener("fullscreenchange", syncFsIcon);
+                document.addEventListener("webkitfullscreenchange", syncFsIcon);
+                document.addEventListener("MSFullscreenChange", syncFsIcon);
+            }
+            syncFsIcon();
+
+            populateSelect();
+            tick();
+            setInterval(tick, 1000);
+
+            // --- DVD screensaver in the background ---
+            (function () {
+                var bg = document.getElementById("dvdBg");
+                if (!bg) {
+                    return;
+                }
+                var COLORS = [
+                    "rgba(123,167,255,0.40)",
+                    "rgba(106,92,255,0.40)",
+                    "rgba(94,234,212,0.40)",
+                    "rgba(255,193,94,0.40)",
+                    "rgba(255,107,129,0.40)"
+                ];
+
+                var logo = document.createElement("div");
+                logo.className = "dvd-logo";
+                bg.appendChild(logo);
+
+                var cw = bg.clientWidth;
+                var ch = bg.clientHeight;
+                var w = logo.offsetWidth > 0 ? logo.offsetWidth : 44;
+                var h = logo.offsetHeight > 0 ? logo.offsetHeight : 44;
+                if (cw <= 0) {
+                    cw = window.innerWidth || 1280;
+                }
+                if (ch <= 0) {
+                    ch = window.innerHeight || 720;
+                }
+
+                window.addEventListener(
+                    "resize",
+                    function () {
+                        cw = bg.clientWidth > 0 ? bg.clientWidth : window.innerWidth || cw;
+                        ch = bg.clientHeight > 0 ? bg.clientHeight : window.innerHeight || ch;
+                    },
+                    false
+                );
+
+                var obstacles =
+                    typeof document.querySelectorAll === "function"
+                        ? Array.prototype.slice.call(
+                              document.querySelectorAll(
+                                  ".clock-card, .schedule-table, .clock-day"
+                              )
+                          )
+                        : [];
+
+                var x = Math.random() * Math.max(1, cw - w);
+                var y = Math.random() * Math.max(1, ch - h);
+                var speed = 110; // px per second
+                var vx = speed * (Math.random() < 0.5 ? -1 : 1);
+                var vy = speed * 0.72 * (Math.random() < 0.5 ? -1 : 1);
+                var color = COLORS[(Math.random() * COLORS.length) | 0];
+                logo.style.color = color;
+                logo.style.transform = "translate(" + x + "px, " + y + "px)";
+
+                var last = performance.now();
+
+                function frame(now) {
+                    var dt = Math.min((now - last) / 1000, 0.05);
+                    last = now;
+                    x += vx * dt;
+                    y += vy * dt;
+                    var bounced = false;
+
+                    // bounce off the screen edges
+                    if (x <= 0) {
+                        x = 0;
+                        vx = Math.abs(vx);
+                        bounced = true;
+                    } else if (x + w >= cw) {
+                        x = cw - w;
+                        vx = -Math.abs(vx);
+                        bounced = true;
+                    }
+                    if (y <= 0) {
+                        y = 0;
+                        vy = Math.abs(vy);
+                        bounced = true;
+                    } else if (y + h >= ch) {
+                        y = ch - h;
+                        vy = -Math.abs(vy);
+                        bounced = true;
+                    }
+
+                    // bounce off the center cards/table
+                    for (var i = 0; i < obstacles.length; i++) {
+                        var r = obstacles[i].getBoundingClientRect();
+                        if (!(x < r.right && x + w > r.left && y < r.bottom && y + h > r.top)) {
+                            continue;
+                        }
+                        var penL = x + w - r.left;
+                        var penR = r.right - x;
+                        var penT = y + h - r.top;
+                        var penB = r.bottom - y;
+                        var minX = Math.min(penL, penR);
+                        var minY = Math.min(penT, penB);
+                        if (minX < minY) {
+                            if (penL < penR) {
+                                x = r.left - w;
+                                vx = -Math.abs(vx);
+                            } else {
+                                x = r.right;
+                                vx = Math.abs(vx);
+                            }
+                        } else {
+                            if (penT < penB) {
+                                y = r.top - h;
+                                vy = -Math.abs(vy);
+                            } else {
+                                y = r.bottom;
+                                vy = Math.abs(vy);
+                            }
+                        }
+                        bounced = true;
+                    }
+
+                    if (bounced) {
+                        color = COLORS[(Math.random() * COLORS.length) | 0];
+                        logo.style.color = color;
+                    }
+                    logo.style.transform = "translate(" + x.toFixed(2) + "px, " + y.toFixed(2) + "px)";
+                    requestAnimationFrame(frame);
+                }
+
+                if (
+                    window.matchMedia &&
+                    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                ) {
+                    logo.style.top = Math.round(y) + "px";
+                    logo.style.left = Math.round(x) + "px";
+                    return;
+                }
+                requestAnimationFrame(frame);
+            })();
+        </script>
+    </body>
+</html>

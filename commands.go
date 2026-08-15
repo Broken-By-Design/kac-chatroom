@@ -388,16 +388,20 @@ const ytCredProbeVideo = "dQw4w9WgXcQ"
 // testYTCredentials actively probes each configured credential profile
 // against a known-good video and updates their health so the admin panel can
 // confirm fresh credentials work after swapping them out.
+//
+// Probes use cookies + yt-dlp's *default* player client (no forced
+// player_client), because that combination is what yields a real 1080p DASH
+// pair for a logged-in session. The previous version forced player_client=web
+// with a PO token, which made YouTube return only the 360p combined format and
+// tripped "Requested format is not available", so credentials always tested as
+// failed even when they were valid.
 func testYTCredentials() []ytCredHealthStatus {
 	for _, p := range ytProfiles {
 		attempt := ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "youtube:player_client=web",
-			format:       "best[height<=720]/best",
-		}
-		if p.poToken != "" {
-			attempt.extractorArg = "youtube:player_client=web;po_token=web+" + p.poToken
+			extractorArg: "",
+			format:       "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best",
 		}
 		// runYtdlpResolve already updates this profile's health from its own
 		// success/failure outcome; we just run it and then read the snapshot.
@@ -499,34 +503,49 @@ func buildResolveAttempts() []ytResolveAttempt {
 		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
 	}
 
-	// Credentialed "web" + PO-token sessions are rate-limited to combined
-	// formats only (no separate video/audio), so a strict DASH selector would
-	// error "Requested format is not available". Use a lenient selector that
-	// accepts whatever YouTube exposes for these sessions.
-	const credFormat = "best[height<=720]/best"
+	// Credentialed sessions: cookies are preferred because a cookies-only,
+	// default-client request returns a full 1080p DASH pair. A PO token is only
+	// added as a *last* resort (PO-token sessions are restricted to the 360p
+	// combined format by YouTube, so they use a lenient selector).
+	const credDashFormat = "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best"
+	const credLenientFormat = "best[height<=720]/best"
 
-	// 3) Credentialed accounts (PO token / cookies) as a last resort.
+	// 3) Credentialed accounts using cookies only (default player client).
+	//    This is what yields 1080p DASH for logged-in users.
 	for _, p := range ytProfiles {
-		ea := "youtube:player_client=web"
-		if p.poToken != "" {
-			ea += ";po_token=web+" + p.poToken
-			// PO tokens for logged-in sessions are bound to the account and
-			// must NOT carry visitor_data. Only use visitor data when there
-			// are no cookies (anonymous session).
-			if p.visitorData != "" && p.cookiesFile == "" {
-				ea += ";visitor_data=" + p.visitorData
-			}
-		}
-		attempts = append(attempts, ytResolveAttempt{profileLabel: p.label, cookiesFile: p.cookiesFile, extractorArg: ea, format: credFormat})
+		attempts = append(attempts, ytResolveAttempt{
+			profileLabel: p.label,
+			cookiesFile:  p.cookiesFile,
+			extractorArg: "",
+			format:       credDashFormat,
+		})
 	}
 
-	// 4) Credentialed web without a PO token (in case the token expired).
+	// 4) Credentialed accounts with a PO token as a last resort (YouTube
+	//    restricts PO-token sessions to the 360p combined format).
+	for _, p := range ytProfiles {
+		if p.poToken == "" {
+			continue
+		}
+		ea := "youtube:player_client=web;po_token=web+" + p.poToken
+		if p.visitorData != "" && p.cookiesFile == "" {
+			ea += ";visitor_data=" + p.visitorData
+		}
+		attempts = append(attempts, ytResolveAttempt{
+			profileLabel: p.label,
+			cookiesFile:  p.cookiesFile,
+			extractorArg: ea,
+			format:       credLenientFormat,
+		})
+	}
+
+	// 5) Credentialed web without a PO token (in case the token expired).
 	for _, p := range ytProfiles {
 		attempts = append(attempts, ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
 			extractorArg: "youtube:player_client=web",
-			format:       credFormat,
+			format:       credDashFormat,
 		})
 	}
 
