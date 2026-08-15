@@ -20,7 +20,7 @@ var ChatApp = window.ChatApp || {};
      * A helper function that takes a data buffer and sends it in chunks over the socket.
      * This is used by compressAndSendImage and is not needed by any other module.
      */
-    function chunkAndEmit(buffer, id, timestamp, question = null) {
+    async function chunkAndEmit(buffer, id, timestamp, question = null) {
         // const totalSize = buffer.byteLength;
         const chunkSize = 256 * 1024; // 256 KB
         const metadata = { timestamp: timestamp, name: id, question: question };
@@ -36,6 +36,9 @@ var ChatApp = window.ChatApp || {};
                 metadata: metadata,
             });
             offset = end;
+            // Yield to the event loop between chunks so typing and chat
+            // messages keep working while a large upload streams out.
+            await new Promise((resolve) => setTimeout(resolve, 0));
         }
     }
 

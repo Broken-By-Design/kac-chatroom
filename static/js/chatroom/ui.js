@@ -342,8 +342,8 @@ var ChatApp = window.ChatApp || {};
     }
 
     function openImageOptions(file) {
-        if (file.size > 5 * 1024 * 1024) {
-            alert("No image larger than 5mb allowed!");
+        if (file.size > 15 * 1024 * 1024) {
+            alert("No image larger than 15mb allowed!");
             return false;
         }
         imageOption.style.display = "grid";

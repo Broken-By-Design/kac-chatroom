@@ -122,7 +122,7 @@ func generateResponse(message, user string, enableGoogleSearch, image bool, imag
 	out = strings.ReplaceAll(out, "\n", " ")
 
 	if image {
-		addToPromptHistorySafe("user", fmt.Sprintf("%s sent an image and asked %s", user, message))
+		addImageToPromptHistorySafe("user", fmt.Sprintf("%s sent an image and asked %s", user, message), imageID)
 	} else {
 		addToPromptHistorySafe("user", fmt.Sprintf("%s: %s", user, message))
 	}
@@ -153,10 +153,15 @@ func initializeAIHistoryFromLog() {
 				Parts: []*genai.Part{genai.NewPartFromText(log.Message)},
 			})
 		} else if log.Type == "image" {
-			state.aiPromptHistory = append(state.aiPromptHistory, &genai.Content{
+			content := &genai.Content{
 				Role:  role,
 				Parts: []*genai.Part{genai.NewPartFromText(fmt.Sprintf("%s sent an image.", log.Nickname))},
-			})
+			}
+			if b, mime := loadImageByID(log.ID); len(b) > 0 && mime != "" {
+				content.Parts = append(content.Parts, genai.NewPartFromBytes(b, mime))
+			}
+			state.aiPromptHistory = append(state.aiPromptHistory, content)
 		}
 	}
+	trimHistoryImagesLocked(maxAIHistoryImages)
 }

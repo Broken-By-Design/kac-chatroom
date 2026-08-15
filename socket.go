@@ -421,7 +421,12 @@ func handleImageChunk(s *socketio.Socket, data []any) {
 		chunk = buf.Bytes()
 	}
 
-	storeImageChunk(tempID, chunk)
+	if !storeImageChunk(tempID, chunk) {
+		discardImageChunks(tempID)
+		fmt.Printf("Image upload from %s rejected: exceeds %d bytes\n", sess.Nickname, maxImageUploadBytes)
+		s.Emit("system_message", map[string]any{"message": "That image is too large. Maximum size is 15MB."})
+		return
+	}
 
 	if isLast {
 		metadata, _ := msg["metadata"].(map[string]any)
@@ -469,7 +474,7 @@ func assembleAndEmitImage(tempID string, metadata map[string]any) {
 		sio.Sockets().Emit("chat_message", map[string]any{"message": resp, "nickname": "KAC-Bot", "timestamp": ts})
 		addChatlogEntry(resp, "KAC-Bot", ts, "text", "")
 	} else {
-		addToPromptHistorySafe("user", fmt.Sprintf("%s: sent an image.", nickname))
+		addImageToPromptHistorySafe("user", fmt.Sprintf("%s: sent an image.", nickname), finalID)
 	}
 }
 

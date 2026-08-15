@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -153,4 +154,108 @@ func addToPromptHistorySafe(role, text string) {
 		state.aiPromptHistory = state.aiPromptHistory[1:]
 		state.aiPromptHistory = append(state.aiPromptHistory, content)
 	}
+}
+
+// imageExts are the file extensions recognized for stored chat images. Keep in
+// sync with the /get_image route.
+var imageExts = []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".tiff", ".bmp", ".psd", ".raw", ".svg", ".heif", ".jp2", ".jpx", ".jpm", ".j2k", ".mj2"}
+
+// maxAIHistoryImages caps how many actual image parts are kept in the bot's
+// prompt history. Images cost far more input tokens than text and hold large
+// byte slices in memory, so older images beyond this limit degrade to their
+// text caption instead of being sent to the model.
+const maxAIHistoryImages = 10
+
+// loadImageByID reads a stored chat image by its base id (no extension),
+// returning the raw bytes and the detected MIME type. Returns empty bytes if
+// the image is missing or the id looks like a path traversal.
+func loadImageByID(id string) ([]byte, string) {
+	if id == "" || strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
+		return nil, ""
+	}
+	basePath := filepath.Join(chatlogsDir, "images", id)
+	for _, e := range imageExts {
+		full := basePath + e
+		if _, err := os.Stat(full); err == nil {
+			b, err := os.ReadFile(full)
+			if err == nil {
+				return b, http.DetectContentType(b)
+			}
+		}
+	}
+	return nil, ""
+}
+
+// countHistoryImagesLocked counts the image (inline data) parts currently in
+// the prompt history. Callers must hold state.mu.
+func countHistoryImagesLocked() int {
+	n := 0
+	for _, c := range state.aiPromptHistory {
+		for _, p := range c.Parts {
+			if p.InlineData != nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// trimHistoryImagesLocked degrades the oldest image-bearing entries in the
+// prompt history down to text-only until at most max inline images remain.
+// Callers must hold state.mu.
+func trimHistoryImagesLocked(max int) {
+	for countHistoryImagesLocked() > max {
+		stripped := false
+		for i, c := range state.aiPromptHistory {
+			if c == nil {
+				continue
+			}
+			hasImage := false
+			for _, p := range c.Parts {
+				if p.InlineData != nil {
+					hasImage = true
+					break
+				}
+			}
+			if !hasImage {
+				continue
+			}
+			var textParts []*genai.Part
+			for _, p := range c.Parts {
+				if p.InlineData == nil {
+					textParts = append(textParts, p)
+				}
+			}
+			if len(textParts) == 0 {
+				textParts = []*genai.Part{genai.NewPartFromText("(an image was shared here)")}
+			}
+			state.aiPromptHistory[i] = &genai.Content{Role: c.Role, Parts: textParts}
+			stripped = true
+			break
+		}
+		if !stripped {
+			break
+		}
+	}
+}
+
+// addImageToPromptHistorySafe records a chat image in the bot's memory with its
+// actual pixel data so the model can reference it later, subject to the image
+// cap. The image is loaded from disk by id.
+func addImageToPromptHistorySafe(role, text, id string) {
+	b, mime := loadImageByID(id)
+	parts := []*genai.Part{genai.NewPartFromText(text)}
+	if len(b) > 0 && mime != "" {
+		parts = append(parts, genai.NewPartFromBytes(b, mime))
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	content := &genai.Content{Role: role, Parts: parts}
+	if len(state.aiPromptHistory) <= 100 {
+		state.aiPromptHistory = append(state.aiPromptHistory, content)
+	} else {
+		state.aiPromptHistory = state.aiPromptHistory[1:]
+		state.aiPromptHistory = append(state.aiPromptHistory, content)
+	}
+	trimHistoryImagesLocked(maxAIHistoryImages)
 }

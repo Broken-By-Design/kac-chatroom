@@ -267,7 +267,7 @@ func setupRoutes(app *fiber.App) {
 		ext := filepath.Ext(id)
 		base := strings.TrimSuffix(id, ext)
 		basePath := filepath.Join("./chatlogs/images/", base)
-		for _, e := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".tiff", ".bmp", ".psd", ".raw", ".svg", ".heif", ".jp2", ".jpx", ".jpm", ".j2k", ".mj2"} {
+		for _, e := range imageExts {
 			full := basePath + e
 			if _, err := os.Stat(full); err == nil {
 				return c.SendFile(full)

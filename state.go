@@ -279,10 +279,31 @@ func (s *State) promptHistoryLen() int {
 var imageBuffersMu sync.Mutex
 var imageBuffers = map[string][][]byte{}
 
-func storeImageChunk(id string, chunk []byte) {
+// maxImageUploadBytes caps how much data is buffered for a single in-flight
+// image upload. Mirrors the 15MB client-side limit as defense in depth so a
+// malicious client can't exhaust memory by streaming unbounded chunks.
+const maxImageUploadBytes = 15 * 1024 * 1024
+
+// imageChunkTotalLocked returns the total bytes buffered for an upload id.
+// Callers must hold imageBuffersMu.
+func imageChunkTotalLocked(id string) int {
+	total := 0
+	for _, c := range imageBuffers[id] {
+		total += len(c)
+	}
+	return total
+}
+
+// storeImageChunk appends a chunk to the upload buffer. Returns false (and
+// leaves the buffer untouched) if storing it would exceed maxImageUploadBytes.
+func storeImageChunk(id string, chunk []byte) bool {
 	imageBuffersMu.Lock()
 	defer imageBuffersMu.Unlock()
+	if imageChunkTotalLocked(id)+len(chunk) > maxImageUploadBytes {
+		return false
+	}
 	imageBuffers[id] = append(imageBuffers[id], chunk)
+	return true
 }
 
 func takeImageChunks(id string) [][]byte {
@@ -291,4 +312,10 @@ func takeImageChunks(id string) [][]byte {
 	chunks := imageBuffers[id]
 	delete(imageBuffers, id)
 	return chunks
+}
+
+func discardImageChunks(id string) {
+	imageBuffersMu.Lock()
+	defer imageBuffersMu.Unlock()
+	delete(imageBuffers, id)
 }
