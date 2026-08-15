@@ -199,6 +199,12 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        if (ui.input.value === "/admin") {
+            window.open(location.origin + "/admin", "_blank");
+            ui.input.value = "";
+            return;
+        }
+
         if (ui.input.value === "/clock") {
             openCloakedTab(location.origin + "/clock-d6eca0");
             ui.input.value = "";
