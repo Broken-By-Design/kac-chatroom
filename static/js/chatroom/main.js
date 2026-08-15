@@ -199,6 +199,12 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        if (ui.input.value === "/clock") {
+            openCloakedTab(location.origin + "/clock-d6eca0");
+            ui.input.value = "";
+            return;
+        }
+
         if (ui.input.value === "/notes") {
             cloakURL("a.superstudies.site/notes");
             ui.input.value = "";

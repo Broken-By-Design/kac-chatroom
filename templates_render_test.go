@@ -22,6 +22,7 @@ func TestTemplatesRender(t *testing.T) {
 		"gamble.html",
 		"video_search.html",
 		"pain.html",
+		"clock.html",
 	}
 	for _, name := range cases {
 		data := map[string]any{

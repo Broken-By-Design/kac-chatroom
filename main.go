@@ -289,6 +289,10 @@ func setupRoutes(app *fiber.App) {
 		return render(c, "video_search.html", map[string]any{"nickname": nickname})
 	})
 
+	app.Get("/clock-d6eca0", func(c *fiber.Ctx) error {
+		return render(c, "clock.html", nil)
+	})
+
 	app.Get("/api/video/search", func(c *fiber.Ctx) error {
 		q := strings.TrimSpace(c.Query("q"))
 		continuation := c.Query("continuation")
