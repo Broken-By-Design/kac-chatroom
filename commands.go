@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -705,18 +706,15 @@ const ytCredProbeVideo = "dQw4w9WgXcQ"
 // against a known-good video and updates their health so the admin panel can
 // confirm fresh credentials work after swapping them out.
 //
-// Probes use cookies + yt-dlp's *default* player client (no forced
-// player_client), because that combination is what yields a real 1080p DASH
-// pair for a logged-in session. The previous version forced player_client=web
-// with a PO token, which made YouTube return only the 360p combined format and
-// tripped "Requested format is not available", so credentials always tested as
-// failed even when they were valid.
+// Probes use the web player client with a strict H.264 DASH-preferring
+// selector. runYtdlpResolve verifies the returned URLs are actually fetchable
+// before reporting success, so health reflects real playability.
 func testYTCredentials() []ytCredHealthStatus {
 	for _, p := range ytProfiles {
 		attempt := ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "",
+			extractorArg: "youtube:player_client=web",
 			format:       "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best",
 		}
 		// runYtdlpResolve already updates this profile's health from its own
@@ -802,37 +800,37 @@ func singleResolve(videoID string, fn func() map[string]any) map[string]any {
 	return res
 }
 
-// buildResolveAttempts returns the ordered list of yt-dlp invocations:
-// anonymous with yt-dlp's default client first (fast and reliably yields a
-// playable DASH pair), then anonymous cross-client fallbacks, then optionally
-// credentialed accounts (cookies + PO token) as a last resort if anonymous is
-// bot-blocked. Credentialed "web" playback only exposes combined formats and is
-// slower, so it's tried after the anonymous paths.
+// buildResolveAttempts returns the ordered list of yt-dlp invocations.
+// The android player client goes first: YouTube currently only serves
+// fetchable googlevideo URLs to that client (web and android_vr URLs 403 on
+// fetch). Every candidate URL is probe-verified in runYtdlpResolve before
+// being served, so a client that starts handing out dead URLs fails fast
+// instead of breaking playback.
 func buildResolveAttempts() []ytResolveAttempt {
 	var attempts []ytResolveAttempt
 
-	// 1) Anonymous, yt-dlp default player client (fastest, best formats).
-	attempts = append(attempts, ytResolveAttempt{extractorArg: ""})
+	// 1) Anonymous android player client (currently the only client whose
+	//    URLs googlevideo actually serves).
+	attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=android"})
 
 	// 2) Anonymous cross-client fallbacks.
-	for _, client := range []string{"web_embedded", "tv"} {
+	for _, client := range []string{"web", "web_embedded", "tv"} {
 		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
 	}
 
 	// Credentialed sessions: cookies are preferred because a cookies-only,
-	// default-client request returns a full 1080p DASH pair. A PO token is only
+	// web-client request can return better formats. A PO token is only
 	// added as a *last* resort (PO-token sessions are restricted to the 360p
 	// combined format by YouTube, so they use a lenient selector).
 	const credDashFormat = "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best"
 	const credLenientFormat = "best[height<=720]/best"
 
-	// 3) Credentialed accounts using cookies only (default player client).
-	//    This is what yields 1080p DASH for logged-in users.
+	// 3) Credentialed accounts using cookies only (web player client).
 	for _, p := range ytProfiles {
 		attempts = append(attempts, ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "",
+			extractorArg: "youtube:player_client=web",
 			format:       credDashFormat,
 		})
 	}
@@ -977,11 +975,30 @@ func runYtdlpResolve(videoID string, attempt ytResolveAttempt) map[string]any {
 			}
 		}
 	}
-	if len(result) == 0 {
-		if attempt.profileLabel != "" {
-			recordCredResult(attempt.profileLabel, false, "no playable stream in yt-dlp output")
+	// YouTube periodically hands out playback URLs that are dead on arrival
+	// (403 from googlevideo) for certain player clients. Probe whatever we
+	// picked using the relay's own request style and discard anything that
+	// won't fetch, so the browser never receives a URL that can't play.
+	vURL, _ := result["video"].(string)
+	aURL, _ := result["audio"].(string)
+	if vURL != "" && aURL != "" {
+		if !streamURLProbeOk(vURL) || !streamURLProbeOk(aURL) {
+			delete(result, "video")
+			delete(result, "audio")
 		}
-		return nil
+	}
+	if u, _ := result["single"].(string); u != "" && !streamURLProbeOk(u) {
+		delete(result, "single")
+	}
+	if _, vOK := result["video"]; !vOK {
+		if _, sOK := result["single"]; !sOK {
+			// Nothing playable survived verification; metadata alone is not a
+			// usable resolve.
+			if attempt.profileLabel != "" {
+				recordCredResult(attempt.profileLabel, false, "no playable stream: resolved URLs failed verification (403)")
+			}
+			return nil
+		}
 	}
 	if attempt.profileLabel != "" {
 		recordCredResult(attempt.profileLabel, true, "")
@@ -1002,7 +1019,12 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 			if e.Failed {
 				return nil
 			}
-			return e.Info
+			// Cached URLs can go dead (YouTube revokes them), so probe before
+			// serving; a dead entry gets dropped and re-resolved below.
+			if streamInfoUsable(e.Info) {
+				return e.Info
+			}
+			streamCacheDelete(videoID)
 		}
 	} else {
 		streamCacheDelete(videoID)
@@ -1019,6 +1041,7 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 			}
 		}
 		if result == nil {
+			log.Printf("video %s: all yt-dlp resolution attempts returned no playable stream", videoID)
 			streamCachePutFailure(videoID)
 		} else {
 			streamCachePut(videoID, result)

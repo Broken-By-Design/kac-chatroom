@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -57,6 +58,64 @@ func getRealIP(r *http.Request) string {
 // to comfortably fetch segments without hitting 503s on seek.
 var videoRelaySem = make(chan struct{}, 60)
 
+// relayUserAgent mirrors a real browser for googlevideo requests. Used by both
+// the relay and the stream URL probes so they present identically.
+const relayUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+
+// streamURLProbeOk verifies a resolved googlevideo playback URL is actually
+// fetchable before it's handed to the browser. YouTube periodically hands out
+// dead URLs (403 on fetch) for some player clients — the classic "video won't
+// play" failure — so every URL we serve gets probed with the same browser-like
+// request the relay uses.
+func streamURLProbeOk(u string) bool {
+	if !strings.Contains(u, "googlevideo.com/videoplayback") {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", relayUserAgent)
+	req.Header.Set("Referer", "https://www.youtube.com/")
+	req.Header.Set("Origin", "https://www.youtube.com")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	req.Header.Set("Sec-Fetch-Dest", "video")
+	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Set("Range", "bytes=0-1")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = 10 * time.Second
+	resp, err := (&http.Client{Transport: tr}).Do(req.WithContext(ctx))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return false
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 2))
+	return true
+}
+
+// streamInfoUsable reports whether a stream payload still has a fetchable
+// playback path. Used on cache reads so dead cached URLs get re-resolved
+// instead of being served to the browser.
+func streamInfoUsable(info map[string]any) bool {
+	vURL, _ := info["video"].(string)
+	aURL, _ := info["audio"].(string)
+	if vURL != "" && aURL != "" {
+		return streamURLProbeOk(vURL) && streamURLProbeOk(aURL)
+	}
+	if u, _ := info["single"].(string); u != "" {
+		return streamURLProbeOk(u)
+	}
+	return false
+}
+
 func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 	u := r.URL.Query().Get("url")
 	if !strings.Contains(u, "googlevideo.com/videoplayback") {
@@ -78,7 +137,7 @@ func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 	// These headers mirror a real browser's media request. YouTube/Google
 	// rejects bare UA+Referer fetches of googlevideo streams (403), so the
 	// Sec-Fetch-* / Origin / Accept headers are required to be accepted.
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", relayUserAgent)
 	req.Header.Set("Referer", "https://www.youtube.com/")
 	req.Header.Set("Origin", "https://www.youtube.com")
 	req.Header.Set("Accept", "*/*")
