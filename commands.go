@@ -779,6 +779,15 @@ var (
 	resolveFlight   = map[string]chan map[string]any{}
 )
 
+// Pair-hunt bookkeeping: one in-flight hunt per videoID, launched after a
+// grace period so it never delays the burst of user resolves that follows a
+// cache miss.
+var (
+	pairHuntMu   sync.Mutex
+	pairHunts    = map[string]bool{}
+	pairHuntWait = 20 * time.Second
+)
+
 // singleResolve runs fn once per videoID; concurrent callers wait for and
 // share its result.
 func singleResolve(videoID string, fn func() map[string]any) map[string]any {
@@ -802,27 +811,20 @@ func singleResolve(videoID string, fn func() map[string]any) map[string]any {
 }
 
 // buildResolveAttempts returns the ordered list of yt-dlp invocations.
-// YouTube currently rotates which player client's playback URLs it actually
-// serves: every client occasionally gets served, then goes dead (403 on
-// fetch). Every candidate is probe-verified in runYtdlpResolve before being
-// served, so the first client caught in a "live" window wins — DASH-pair
-// clients first so the result is 1080p whenever possible, with the android
-// 360p combined URL as the always-available fallback and low-mode toggle.
+// The android client comes first: it is the one client that reliably yields
+// a fetchable 360p combined URL, so the user-facing path resolves in one
+// call. The DASH-pair clients follow; their URLs are probe-verified in
+// runYtdlpResolve and only served while Google is actually serving them
+// (it rotates which client is live at any moment). Credentialed sessions
+// come last as a fallback for bot-blocked networks.
 func buildResolveAttempts() []ytResolveAttempt {
 	var attempts []ytResolveAttempt
 
-	// 1) Anonymous DASH-pair clients: the first that yields a fetchable
-	//    URL set wins, giving high mode its 1080p stream when live.
-	for _, client := range []string{"web_embedded", "android_vr", "android_sdk", "android_creator"} {
-		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
-	}
-
-	// 2) Anonymous android client: fetchable 360p combined fallback (low
-	//    mode), also merged alongside a pair when one is found.
+	// 1) Anonymous android client: fetchable 360p combined (low mode).
 	attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=android"})
 
-	// 3) Anonymous cross-client fallbacks.
-	for _, client := range []string{"web", "tv"} {
+	// 2) Anonymous DASH-pair clients: 1080p for high mode when live.
+	for _, client := range []string{"web_embedded", "android_vr", "android_sdk", "android_creator", "web", "tv"} {
 		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
 	}
 
@@ -833,7 +835,7 @@ func buildResolveAttempts() []ytResolveAttempt {
 	const credDashFormat = "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best"
 	const credLenientFormat = "best[height<=720]/best"
 
-	// 4) Credentialed accounts using cookies only (web_embedded player client).
+	// 3) Credentialed accounts using cookies only (web_embedded player client).
 	for _, p := range ytProfiles {
 		attempts = append(attempts, ytResolveAttempt{
 			profileLabel: p.label,
@@ -843,7 +845,7 @@ func buildResolveAttempts() []ytResolveAttempt {
 		})
 	}
 
-	// 5) Credentialed accounts with a PO token as a last resort (YouTube
+	// 4) Credentialed accounts with a PO token as a last resort (YouTube
 	//    restricts PO-token sessions to the 360p combined format).
 	for _, p := range ytProfiles {
 		if p.poToken == "" {
@@ -861,7 +863,7 @@ func buildResolveAttempts() []ytResolveAttempt {
 		})
 	}
 
-	// 6) Credentialed web_embedded without a PO token (in case the token
+	// 5) Credentialed web_embedded without a PO token (in case the token
 	//    expired).
 	for _, p := range ytProfiles {
 		attempts = append(attempts, ytResolveAttempt{
@@ -1015,47 +1017,92 @@ func runYtdlpResolve(videoID string, attempt ytResolveAttempt) map[string]any {
 	return result
 }
 
-// resolveVideoStreamInfo uses yt-dlp in simulate mode to fetch direct,
-// time-limited stream URLs for a video. Nothing is downloaded or stored.
-//
-// It prefers a 1080p H.264 video-only DASH stream paired with the best m4a
-// audio, which the client muxes via MediaSource. YouTube no longer offers
-// combined (video+audio) formats above 360p, so a "single" 360p URL is
-// returned as a fallback when no DASH pair is available.
-// resolveStreamsOnce runs the full yt-dlp attempt chain (under the
-// single-flight + semaphore) and caches the outcome.
+// resolveStreamsOnce resolves a video and caches the outcome. The android
+// fast path runs first so a playable 360p result comes back in one yt-dlp
+// call; only when that fails does the rest of the attempt chain run. A
+// background pair hunt (never blocking the caller) then tries the other
+// players for a fetchable 1080p DASH pair and upgrades the cache entry.
 func resolveStreamsOnce(videoID string) map[string]any {
 	streamResolveSem <- struct{}{}
 	defer func() { <-streamResolveSem }()
 
+	attempts := buildResolveAttempts()
 	var result map[string]any
-	for _, attempt := range buildResolveAttempts() {
+	for i, attempt := range attempts {
 		if result = runYtdlpResolve(videoID, attempt); result != nil {
-			break
-		}
-	}
-	if result != nil {
-		// The DASH-pair clients only expose the 1080p pair, so grab the
-		// android client's 360p combined URL too: it powers the frontend's
-		// "low" (native <video>) toggle state while the pair powers "high"
-		// (MediaSource muxing).
-		if _, hasVideo := result["video"]; hasVideo {
-			if _, hasSingle := result["single"]; !hasSingle {
-				if low := runYtdlpResolve(videoID, ytResolveAttempt{extractorArg: "youtube:player_client=android"}); low != nil {
-					if s, ok := low["single"].(string); ok && s != "" {
-						result["single"] = s
-					}
-				}
+			if i == 0 {
+				// The android fast path won: hunt for a pair upgrade in the
+				// background. On every other path the user already waited, so
+				// the best playable result is served as-is.
+				go pairHuntForVideo(videoID)
 			}
+			break
 		}
 	}
 	if result == nil {
 		log.Printf("video %s: all yt-dlp resolution attempts returned no playable stream", videoID)
 		streamCachePutFailure(videoID)
-	} else {
-		streamCachePut(videoID, result)
+		return nil
 	}
+	streamCachePut(videoID, result)
 	return result
+}
+
+// pairHuntForVideo opportunistically tries the DASH-pair / credentialed
+// players to upgrade a cached single-only entry to a 1080p pair + single.
+// It waits out pairHuntWait so an immediate burst of user resolves goes
+// first, then only runs when the resolver slot is free — so it never queues
+// behind or ahead of user requests.
+func pairHuntForVideo(videoID string) {
+	pairHuntMu.Lock()
+	if pairHunts[videoID] {
+		pairHuntMu.Unlock()
+		return
+	}
+	pairHunts[videoID] = true
+	pairHuntMu.Unlock()
+	defer func() {
+		pairHuntMu.Lock()
+		delete(pairHunts, videoID)
+		pairHuntMu.Unlock()
+	}()
+
+	time.Sleep(pairHuntWait)
+	select {
+	case streamResolveSem <- struct{}{}:
+	default:
+		return // a resolve is running; the next play will re-hunt
+	}
+	defer func() { <-streamResolveSem }()
+
+	e, ok := streamCacheGet(videoID)
+	if !ok || e.Failed {
+		return
+	}
+	if _, hasPair := e.Info["video"].(string); hasPair {
+		return // the entry is already paired; its probes handle freshness
+	}
+	var best map[string]any
+	for _, attempt := range buildResolveAttempts()[1:] {
+		if res := runYtdlpResolve(videoID, attempt); res != nil {
+			best = res
+			if _, hasPair := res["video"]; hasPair {
+				break // found the 1080p pair; stop hunting
+			}
+		}
+	}
+	if best == nil {
+		return
+	}
+	if s, _ := e.Info["single"].(string); s != "" {
+		if _, hasSingle := best["single"]; !hasSingle {
+			best["single"] = s
+		}
+	}
+	streamCachePut(videoID, best)
+	if _, hasPair := best["video"]; hasPair {
+		log.Printf("video %s: background pair hunt upgraded to a DASH pair", videoID)
+	}
 }
 
 func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
@@ -1065,14 +1112,12 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 				return nil
 			}
 			// URLs go dead as YouTube rotates which player client gets
-			// served, so probe before serving. If the cached 1080p pair died
-			// but the 360p single still plays, serve it immediately and
-			// re-resolve in the background to hunt for a fresh pair.
+			// served, so probe before serving. If a cached DASH pair died
+			// but the 360p single still plays, serve the single now and drop
+			// the entry so the next request re-resolves (and hunts) fresh.
 			if info, degraded, ok := streamInfoUsable(e.Info); ok {
 				if degraded {
-					go singleResolve(videoID, func() map[string]any {
-						return resolveStreamsOnce(videoID)
-					})
+					streamCacheDelete(videoID)
 				}
 				return info
 			}

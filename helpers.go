@@ -84,7 +84,9 @@ func streamURLProbeOk(u string) bool {
 	req.Header.Set("Sec-Fetch-Site", "same-site")
 	req.Header.Set("Sec-Fetch-Dest", "video")
 	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("Range", "bytes=0-1")
+	// Mirror the relay's default request exactly (bytes=0-) so a URL that
+	// passes here is one the relay can serve.
+	req.Header.Set("Range", "bytes=0-")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	tr := http.DefaultTransport.(*http.Transport).Clone()
