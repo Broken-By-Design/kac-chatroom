@@ -706,15 +706,16 @@ const ytCredProbeVideo = "dQw4w9WgXcQ"
 // against a known-good video and updates their health so the admin panel can
 // confirm fresh credentials work after swapping them out.
 //
-// Probes use the web player client with a strict H.264 DASH-preferring
-// selector. runYtdlpResolve verifies the returned URLs are actually fetchable
-// before reporting success, so health reflects real playability.
+// Probes use the web_embedded player client with a strict H.264
+// DASH-preferring selector. runYtdlpResolve verifies the returned URLs are
+// actually fetchable before reporting success, so health reflects real
+// playability.
 func testYTCredentials() []ytCredHealthStatus {
 	for _, p := range ytProfiles {
 		attempt := ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "youtube:player_client=web",
+			extractorArg: "youtube:player_client=web_embedded",
 			format:       "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best",
 		}
 		// runYtdlpResolve already updates this profile's health from its own
@@ -801,41 +802,48 @@ func singleResolve(videoID string, fn func() map[string]any) map[string]any {
 }
 
 // buildResolveAttempts returns the ordered list of yt-dlp invocations.
-// The android player client goes first: YouTube currently only serves
-// fetchable googlevideo URLs to that client (web and android_vr URLs 403 on
-// fetch). Every candidate URL is probe-verified in runYtdlpResolve before
-// being served, so a client that starts handing out dead URLs fails fast
-// instead of breaking playback.
+// YouTube currently rotates which player client's playback URLs it actually
+// serves: every client occasionally gets served, then goes dead (403 on
+// fetch). Every candidate is probe-verified in runYtdlpResolve before being
+// served, so the first client caught in a "live" window wins — DASH-pair
+// clients first so the result is 1080p whenever possible, with the android
+// 360p combined URL as the always-available fallback and low-mode toggle.
 func buildResolveAttempts() []ytResolveAttempt {
 	var attempts []ytResolveAttempt
 
-	// 1) Anonymous android player client (currently the only client whose
-	//    URLs googlevideo actually serves).
+	// 1) Anonymous DASH-pair clients: the first that yields a fetchable
+	//    URL set wins, giving high mode its 1080p stream when live.
+	for _, client := range []string{"web_embedded", "android_vr", "android_sdk", "android_creator"} {
+		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
+	}
+
+	// 2) Anonymous android client: fetchable 360p combined fallback (low
+	//    mode), also merged alongside a pair when one is found.
 	attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=android"})
 
-	// 2) Anonymous cross-client fallbacks.
-	for _, client := range []string{"web", "web_embedded", "tv"} {
+	// 3) Anonymous cross-client fallbacks.
+	for _, client := range []string{"web", "tv"} {
 		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
 	}
 
 	// Credentialed sessions: cookies are preferred because a cookies-only,
-	// web-client request can return better formats. A PO token is only
-	// added as a *last* resort (PO-token sessions are restricted to the 360p
-	// combined format by YouTube, so they use a lenient selector).
+	// web_embedded request can return a full 1080p DASH pair. A PO token is
+	// only added as a *last* resort (PO-token sessions are restricted to the
+	// 360p combined format by YouTube, so they use a lenient selector).
 	const credDashFormat = "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best"
 	const credLenientFormat = "best[height<=720]/best"
 
-	// 3) Credentialed accounts using cookies only (web player client).
+	// 4) Credentialed accounts using cookies only (web_embedded player client).
 	for _, p := range ytProfiles {
 		attempts = append(attempts, ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "youtube:player_client=web",
+			extractorArg: "youtube:player_client=web_embedded",
 			format:       credDashFormat,
 		})
 	}
 
-	// 4) Credentialed accounts with a PO token as a last resort (YouTube
+	// 5) Credentialed accounts with a PO token as a last resort (YouTube
 	//    restricts PO-token sessions to the 360p combined format).
 	for _, p := range ytProfiles {
 		if p.poToken == "" {
@@ -853,12 +861,13 @@ func buildResolveAttempts() []ytResolveAttempt {
 		})
 	}
 
-	// 5) Credentialed web without a PO token (in case the token expired).
+	// 6) Credentialed web_embedded without a PO token (in case the token
+	//    expired).
 	for _, p := range ytProfiles {
 		attempts = append(attempts, ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "youtube:player_client=web",
+			extractorArg: "youtube:player_client=web_embedded",
 			format:       credDashFormat,
 		})
 	}
@@ -1013,16 +1022,59 @@ func runYtdlpResolve(videoID string, attempt ytResolveAttempt) map[string]any {
 // audio, which the client muxes via MediaSource. YouTube no longer offers
 // combined (video+audio) formats above 360p, so a "single" 360p URL is
 // returned as a fallback when no DASH pair is available.
+// resolveStreamsOnce runs the full yt-dlp attempt chain (under the
+// single-flight + semaphore) and caches the outcome.
+func resolveStreamsOnce(videoID string) map[string]any {
+	streamResolveSem <- struct{}{}
+	defer func() { <-streamResolveSem }()
+
+	var result map[string]any
+	for _, attempt := range buildResolveAttempts() {
+		if result = runYtdlpResolve(videoID, attempt); result != nil {
+			break
+		}
+	}
+	if result != nil {
+		// The DASH-pair clients only expose the 1080p pair, so grab the
+		// android client's 360p combined URL too: it powers the frontend's
+		// "low" (native <video>) toggle state while the pair powers "high"
+		// (MediaSource muxing).
+		if _, hasVideo := result["video"]; hasVideo {
+			if _, hasSingle := result["single"]; !hasSingle {
+				if low := runYtdlpResolve(videoID, ytResolveAttempt{extractorArg: "youtube:player_client=android"}); low != nil {
+					if s, ok := low["single"].(string); ok && s != "" {
+						result["single"] = s
+					}
+				}
+			}
+		}
+	}
+	if result == nil {
+		log.Printf("video %s: all yt-dlp resolution attempts returned no playable stream", videoID)
+		streamCachePutFailure(videoID)
+	} else {
+		streamCachePut(videoID, result)
+	}
+	return result
+}
+
 func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 	if !fresh {
 		if e, ok := streamCacheGet(videoID); ok {
 			if e.Failed {
 				return nil
 			}
-			// Cached URLs can go dead (YouTube revokes them), so probe before
-			// serving; a dead entry gets dropped and re-resolved below.
-			if streamInfoUsable(e.Info) {
-				return e.Info
+			// URLs go dead as YouTube rotates which player client gets
+			// served, so probe before serving. If the cached 1080p pair died
+			// but the 360p single still plays, serve it immediately and
+			// re-resolve in the background to hunt for a fresh pair.
+			if info, degraded, ok := streamInfoUsable(e.Info); ok {
+				if degraded {
+					go singleResolve(videoID, func() map[string]any {
+						return resolveStreamsOnce(videoID)
+					})
+				}
+				return info
 			}
 			streamCacheDelete(videoID)
 		}
@@ -1031,22 +1083,7 @@ func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 	}
 
 	return singleResolve(videoID, func() map[string]any {
-		streamResolveSem <- struct{}{}
-		defer func() { <-streamResolveSem }()
-
-		var result map[string]any
-		for _, attempt := range buildResolveAttempts() {
-			if result = runYtdlpResolve(videoID, attempt); result != nil {
-				break
-			}
-		}
-		if result == nil {
-			log.Printf("video %s: all yt-dlp resolution attempts returned no playable stream", videoID)
-			streamCachePutFailure(videoID)
-		} else {
-			streamCachePut(videoID, result)
-		}
-		return result
+		return resolveStreamsOnce(videoID)
 	})
 }
 

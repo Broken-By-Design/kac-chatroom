@@ -101,19 +101,41 @@ func streamURLProbeOk(u string) bool {
 	return true
 }
 
-// streamInfoUsable reports whether a stream payload still has a fetchable
-// playback path. Used on cache reads so dead cached URLs get re-resolved
-// instead of being served to the browser.
-func streamInfoUsable(info map[string]any) bool {
+// streamInfoUsable probes the URLs in a stream payload and returns a cleaned
+// copy containing only the still-fetchable playback paths. ok is false when
+// nothing is fetchable. degraded is true when a cached DASH pair died but the
+// 360p single still plays, which tells the caller to serve the single now and
+// re-resolve in the background for a fresh pair.
+func streamInfoUsable(info map[string]any) (clean map[string]any, degraded bool, ok bool) {
+	clean = map[string]any{}
+	for k, v := range info {
+		clean[k] = v
+	}
 	vURL, _ := info["video"].(string)
 	aURL, _ := info["audio"].(string)
-	if vURL != "" && aURL != "" {
-		return streamURLProbeOk(vURL) && streamURLProbeOk(aURL)
+	pairDead := vURL != "" && aURL != ""
+	if pairDead {
+		if streamURLProbeOk(vURL) && streamURLProbeOk(aURL) {
+			pairDead = false
+		} else {
+			delete(clean, "video")
+			delete(clean, "audio")
+			delete(clean, "vcodec")
+			delete(clean, "acodec")
+		}
 	}
 	if u, _ := info["single"].(string); u != "" {
-		return streamURLProbeOk(u)
+		if !streamURLProbeOk(u) {
+			delete(clean, "single")
+		}
 	}
-	return false
+	if _, hasV := clean["video"]; hasV {
+		return clean, false, true
+	}
+	if _, hasS := clean["single"]; hasS {
+		return clean, pairDead, true
+	}
+	return nil, false, false
 }
 
 func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
