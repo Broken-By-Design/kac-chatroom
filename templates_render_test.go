@@ -21,17 +21,19 @@ func TestTemplatesRender(t *testing.T) {
 		"movie_list.html",
 		"gamble.html",
 		"video_search.html",
+		"channel.html",
 		"pain.html",
 		"clock.html",
 	}
 	for _, name := range cases {
 		data := map[string]any{
-			"nickname": "alice",
-			"error":    "",
-			"expiry":   "2026-08-07 12:00:00 CDT",
-			"movies":   []map[string]string{{"name": "x", "thumb": "t", "file_id": "f"}},
-			"fid":      "abc",
+			"nickname":  "alice",
+			"error":     "",
+			"expiry":    "2026-08-07 12:00:00 CDT",
+			"movies":    []map[string]string{{"name": "x", "thumb": "t", "file_id": "f"}},
+			"fid":       "abc",
 			"movie_url": "http://example.com/v.mp4",
+			"channelId": "UC0cnYfHzt3MLCIvWdP1jDMQ",
 		}
 		var buf bytes.Buffer
 		if err := templates.ExecuteTemplate(&buf, name, data); err != nil {

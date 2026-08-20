@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -57,6 +58,88 @@ func getRealIP(r *http.Request) string {
 // to comfortably fetch segments without hitting 503s on seek.
 var videoRelaySem = make(chan struct{}, 60)
 
+// relayUserAgent mirrors a real browser for googlevideo requests. Used by both
+// the relay and the stream URL probes so they present identically.
+const relayUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+
+// streamURLProbeOk verifies a resolved googlevideo playback URL is actually
+// fetchable before it's handed to the browser. YouTube periodically hands out
+// dead URLs (403 on fetch) for some player clients — the classic "video won't
+// play" failure — so every URL we serve gets probed with the same browser-like
+// request the relay uses.
+func streamURLProbeOk(u string) bool {
+	if !strings.Contains(u, "googlevideo.com/videoplayback") {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", relayUserAgent)
+	req.Header.Set("Referer", "https://www.youtube.com/")
+	req.Header.Set("Origin", "https://www.youtube.com")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	req.Header.Set("Sec-Fetch-Dest", "video")
+	req.Header.Set("Accept-Encoding", "identity")
+	// Mirror the relay's default request exactly (bytes=0-) so a URL that
+	// passes here is one the relay can serve.
+	req.Header.Set("Range", "bytes=0-")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = 10 * time.Second
+	resp, err := (&http.Client{Transport: tr}).Do(req.WithContext(ctx))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return false
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 2))
+	return true
+}
+
+// streamInfoUsable probes the URLs in a stream payload and returns a cleaned
+// copy containing only the still-fetchable playback paths. ok is false when
+// nothing is fetchable. degraded is true when a cached DASH pair died but the
+// 360p single still plays, which tells the caller to serve the single now and
+// re-resolve in the background for a fresh pair.
+func streamInfoUsable(info map[string]any) (clean map[string]any, degraded bool, ok bool) {
+	clean = map[string]any{}
+	for k, v := range info {
+		clean[k] = v
+	}
+	vURL, _ := info["video"].(string)
+	aURL, _ := info["audio"].(string)
+	pairDead := vURL != "" && aURL != ""
+	if pairDead {
+		if streamURLProbeOk(vURL) && streamURLProbeOk(aURL) {
+			pairDead = false
+		} else {
+			delete(clean, "video")
+			delete(clean, "audio")
+			delete(clean, "vcodec")
+			delete(clean, "acodec")
+		}
+	}
+	if u, _ := info["single"].(string); u != "" {
+		if !streamURLProbeOk(u) {
+			delete(clean, "single")
+		}
+	}
+	if _, hasV := clean["video"]; hasV {
+		return clean, false, true
+	}
+	if _, hasS := clean["single"]; hasS {
+		return clean, pairDead, true
+	}
+	return nil, false, false
+}
+
 func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 	u := r.URL.Query().Get("url")
 	if !strings.Contains(u, "googlevideo.com/videoplayback") {
@@ -78,7 +161,7 @@ func handleVideoRelay(w http.ResponseWriter, r *http.Request) {
 	// These headers mirror a real browser's media request. YouTube/Google
 	// rejects bare UA+Referer fetches of googlevideo streams (403), so the
 	// Sec-Fetch-* / Origin / Accept headers are required to be accepted.
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", relayUserAgent)
 	req.Header.Set("Referer", "https://www.youtube.com/")
 	req.Header.Set("Origin", "https://www.youtube.com")
 	req.Header.Set("Accept", "*/*")

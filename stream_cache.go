@@ -19,6 +19,12 @@ const (
 	// resolutions cache hits.
 	streamCacheTTL = 4 * time.Hour
 
+	// streamSingleTTL is how long a 360p-only (no DASH pair) resolve is kept.
+	// YouTube rotates which player client gets served, so a pair may become
+	// fetchable minutes after a single-only resolve. A short TTL lets the
+	// next click re-resolve and pick up the higher quality.
+	streamSingleTTL = 10 * time.Minute
+
 	// streamFailureTTL is how long a failed resolve is remembered, so the
 	// frontend's ?fresh=1 retries don't hammer yt-dlp on already-broken
 	// videos.
@@ -82,14 +88,20 @@ func streamCacheGet(videoID string) (streamCacheEntry, bool) {
 	return e, true
 }
 
-// streamCachePut stores a successful resolve.
+// streamCachePut stores a successful resolve. Pair (1080p DASH) entries live
+// the full TTL; single-only entries expire quickly so a later re-resolve can
+// catch a live pair when Google's client rotation allows one.
 func streamCachePut(videoID string, info map[string]any) {
+	ttl := streamCacheTTL
+	if _, ok := info["video"].(string); !ok {
+		ttl = streamSingleTTL
+	}
 	sc := streamCacheInstance
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.insert(videoID, streamCacheEntry{
 		Info:    info,
-		Expires: time.Now().Add(streamCacheTTL).Unix(),
+		Expires: time.Now().Add(ttl).Unix(),
 	})
 	sc.scheduleSave()
 }

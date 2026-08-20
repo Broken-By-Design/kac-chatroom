@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -237,6 +238,7 @@ func collectVideos(node any, out *[]VideoSearchResult) {
 				if byline, ok := vr["shortBylineText"].(map[string]any); ok {
 					result.Channel = runsText(byline["runs"])
 				}
+				collectChannelRef(vr, &result)
 				if dms, ok := vr["detailedMetadataSnippets"].([]any); ok && len(dms) > 0 {
 					if first, ok := dms[0].(map[string]any); ok {
 						if st, ok := first["snippetText"].(map[string]any); ok {
@@ -252,6 +254,24 @@ func collectVideos(node any, out *[]VideoSearchResult) {
 				*out = append(*out, result)
 			}
 		}
+		if lv, ok := v["lockupViewModel"].(map[string]any); ok {
+			if id, ok := lv["contentId"].(string); ok && id != "" {
+				result := VideoSearchResult{VideoID: id}
+				if md, ok := lv["metadata"].(map[string]any); ok {
+					if lmd, ok := md["lockupMetadataViewModel"].(map[string]any); ok {
+						if title, ok := lmd["title"].(map[string]any); ok {
+							if c, ok := title["content"].(string); ok {
+								result.Title = c
+							}
+						}
+						if mv, ok := lmd["metadata"].(map[string]any); ok {
+							result.Channel = textContent(mv)
+						}
+					}
+				}
+				*out = append(*out, result)
+			}
+		}
 		for _, child := range v {
 			collectVideos(child, out)
 		}
@@ -260,6 +280,82 @@ func collectVideos(node any, out *[]VideoSearchResult) {
 			collectVideos(child, out)
 		}
 	}
+}
+
+// collectChannelRef fills in ChannelID (and the channel avatar) on a
+// videoRenderer-derived result from the ownerText/avatar subtrees.
+func collectChannelRef(vr map[string]any, result *VideoSearchResult) {
+	if owner, ok := vr["ownerText"].(map[string]any); ok {
+		if runs, ok := owner["runs"].([]any); ok && len(runs) > 0 {
+			if run, ok := runs[0].(map[string]any); ok {
+				if ne, ok := run["navigationEndpoint"].(map[string]any); ok {
+					if be, ok := ne["browseEndpoint"].(map[string]any); ok {
+						if cid, ok := be["browseId"].(string); ok {
+							result.ChannelID = cid
+						}
+					}
+				}
+			}
+		}
+	}
+	if av, ok := vr["avatar"].(map[string]any); ok {
+		if dav, ok := av["decoratedAvatarViewModel"].(map[string]any); ok {
+			if a, ok := dav["avatar"].(map[string]any); ok {
+				if avm, ok := a["avatarViewModel"].(map[string]any); ok {
+					if img, ok := avm["image"].(map[string]any); ok {
+						result.ChannelThumb = bestThumb(img["sources"])
+					}
+				}
+			}
+		}
+	}
+}
+
+// bestThumb picks the largest-width thumbnail URL from an innertube
+// thumbnails/sources array, falling back to the last entry that has a URL.
+func bestThumb(n any) string {
+	list, ok := n.([]any)
+	if !ok {
+		return ""
+	}
+	var best string
+	var bestW float64
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		u, _ := m["url"].(string)
+		if u == "" {
+			continue
+		}
+		if w, ok := m["width"].(float64); ok && w > 0 {
+			if w >= bestW {
+				best, bestW = u, w
+			}
+		} else if best == "" {
+			best = u
+		}
+	}
+	if best == "" {
+		for _, item := range list {
+			if m, ok := item.(map[string]any); ok {
+				if u, ok := m["url"].(string); ok && u != "" {
+					best = u
+				}
+			}
+		}
+	}
+	return best
+}
+
+// textContent returns the plain "content" text of a text-in-content renderer
+// object if present.
+func textContent(m map[string]any) string {
+	if c, ok := m["content"].(string); ok {
+		return c
+	}
+	return ""
 }
 
 func runsText(node any) string {
@@ -276,6 +372,227 @@ func runsText(node any) string {
 		}
 	}
 	return sb.String()
+}
+
+// channelVideosTabParams is the innertube browse params that select a channel's
+// "Videos" tab (the standard value used by YouTube's web client).
+const channelVideosTabParams = "EgZ2aWRlb3PyBgQKAjoA"
+
+// firstMap returns the first map in the tree at the given key.
+func firstMap(node any, key string) map[string]any {
+	switch v := node.(type) {
+	case map[string]any:
+		if m, ok := v[key].(map[string]any); ok {
+			return m
+		}
+		for _, child := range v {
+			if r := firstMap(child, key); r != nil {
+				return r
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if r := firstMap(child, key); r != nil {
+				return r
+			}
+		}
+	}
+	return nil
+}
+
+// metadataPartTexts collects the plain "content" text of every
+// contentMetadataViewModel metadataParts array in the tree (the header line
+// like "48.4K subscribers · 81 videos").
+func metadataPartTexts(node any) []string {
+	var out []string
+	var walk func(any)
+	walk = func(n any) {
+		switch v := n.(type) {
+		case map[string]any:
+			if parts, ok := v["metadataParts"].([]any); ok {
+				for _, p := range parts {
+					if pm, ok := p.(map[string]any); ok {
+						if text, ok := pm["text"].(map[string]any); ok {
+							if c, ok := text["content"].(string); ok && c != "" {
+								out = append(out, c)
+							}
+						}
+					}
+				}
+			}
+			for _, child := range v {
+				walk(child)
+			}
+		case []any:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+	walk(node)
+	return out
+}
+
+// parseChannelInfo extracts channel metadata from a channel browse response.
+func parseChannelInfo(root any, browseID string) *ChannelInfo {
+	info := &ChannelInfo{ID: browseID}
+	if cmr := firstMap(root, "channelMetadataRenderer"); cmr != nil {
+		if t, ok := cmr["title"].(string); ok {
+			info.Title = t
+		}
+		if d, ok := cmr["description"].(string); ok {
+			info.Description = d
+		}
+		if av, ok := cmr["avatar"].(map[string]any); ok {
+			info.Thumb = bestThumb(av["thumbnails"])
+		}
+		if v, ok := cmr["vanityChannelUrl"].(string); ok {
+			if i := strings.LastIndex(v, "/"); i >= 0 {
+				info.Handle = v[i+1:]
+			}
+		}
+	}
+	for _, part := range metadataPartTexts(root) {
+		lower := strings.ToLower(part)
+		if info.Subscribers == "" && strings.Contains(lower, "subscriber") {
+			info.Subscribers = part
+		}
+		if info.VideoCount == "" && strings.Contains(lower, "video") {
+			info.VideoCount = part
+		}
+	}
+	if ibv := firstMap(root, "imageBannerViewModel"); ibv != nil {
+		if img, ok := ibv["image"].(map[string]any); ok {
+			info.Banner = bestThumb(img["sources"])
+		}
+	}
+	if info.Title == "" {
+		return nil
+	}
+	return info
+}
+
+// collectChannelVideos gathers videos only from the channel grid containers
+// (richGridRenderer on the first page, appendContinuationItemsAction on
+// continuation pages) so stray videoRenderers elsewhere in the response aren't
+// mixed into the channel's video list.
+func collectChannelVideos(node any, out *[]VideoSearchResult) {
+	switch v := node.(type) {
+	case map[string]any:
+		if _, ok := v["richGridRenderer"]; ok {
+			collectVideos(v, out)
+			return
+		}
+		if _, ok := v["appendContinuationItemsAction"]; ok {
+			collectVideos(v, out)
+			return
+		}
+		for _, child := range v {
+			collectChannelVideos(child, out)
+		}
+	case []any:
+		for _, child := range v {
+			collectChannelVideos(child, out)
+		}
+	}
+}
+
+// collectChannelToken returns the next-page continuation token, only looking
+// inside the channel grid containers so unrelated continuations (header menus,
+// etc.) are ignored.
+func collectChannelToken(node any, inGrid bool) string {
+	switch v := node.(type) {
+	case map[string]any:
+		if _, ok := v["richGridRenderer"]; ok {
+			inGrid = true
+		}
+		if _, ok := v["appendContinuationItemsAction"]; ok {
+			inGrid = true
+		}
+		if inGrid {
+			if cir, ok := v["continuationItemRenderer"].(map[string]any); ok {
+				if ep, ok := cir["continuationEndpoint"].(map[string]any); ok {
+					if cc, ok := ep["continuationCommand"].(map[string]any); ok {
+						if tok, ok := cc["token"].(string); ok && tok != "" {
+							return tok
+						}
+					}
+				}
+			}
+		}
+		for _, child := range v {
+			if t := collectChannelToken(child, inGrid); t != "" {
+				return t
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if t := collectChannelToken(child, inGrid); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
+// dedupeVideos removes repeated video IDs, keeping the first occurrence.
+func dedupeVideos(in []VideoSearchResult) []VideoSearchResult {
+	seen := map[string]bool{}
+	out := in[:0]
+	for _, r := range in {
+		if !seen[r.VideoID] {
+			seen[r.VideoID] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// channelVideosPage returns one page of a channel's videos. Pass a continuation
+// token (from a prior call) to fetch the next page; otherwise pass the channel
+// browseId.
+func channelVideosPage(browseID, continuation string) ([]VideoSearchResult, string) {
+	body := map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName": "WEB", "clientVersion": "2.20240801.00.00", "hl": "en", "gl": "US",
+			},
+		},
+	}
+	if continuation != "" {
+		body["continuation"] = continuation
+	} else {
+		body["browseId"] = browseID
+		body["params"] = channelVideosTabParams
+	}
+	root := innertubePost("browse", body)
+	if root == nil {
+		return nil, ""
+	}
+	var results []VideoSearchResult
+	collectChannelVideos(root, &results)
+	return dedupeVideos(results), collectChannelToken(root, false)
+}
+
+// channelPage fetches a channel's metadata plus the first page of its videos in
+// one browse request.
+func channelPage(browseID string) (*ChannelInfo, []VideoSearchResult, string) {
+	root := innertubePost("browse", map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName": "WEB", "clientVersion": "2.20240801.00.00", "hl": "en", "gl": "US",
+			},
+		},
+		"browseId": browseID,
+		"params":   channelVideosTabParams,
+	})
+	if root == nil {
+		return nil, nil, ""
+	}
+	info := parseChannelInfo(root, browseID)
+	var results []VideoSearchResult
+	collectChannelVideos(root, &results)
+	return info, dedupeVideos(results), collectChannelToken(root, false)
 }
 
 // streamResolveSem caps concurrent yt-dlp subprocesses. Kept at 1 so the
@@ -389,18 +706,16 @@ const ytCredProbeVideo = "dQw4w9WgXcQ"
 // against a known-good video and updates their health so the admin panel can
 // confirm fresh credentials work after swapping them out.
 //
-// Probes use cookies + yt-dlp's *default* player client (no forced
-// player_client), because that combination is what yields a real 1080p DASH
-// pair for a logged-in session. The previous version forced player_client=web
-// with a PO token, which made YouTube return only the 360p combined format and
-// tripped "Requested format is not available", so credentials always tested as
-// failed even when they were valid.
+// Probes use the web_embedded player client with a strict H.264
+// DASH-preferring selector. runYtdlpResolve verifies the returned URLs are
+// actually fetchable before reporting success, so health reflects real
+// playability.
 func testYTCredentials() []ytCredHealthStatus {
 	for _, p := range ytProfiles {
 		attempt := ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "",
+			extractorArg: "youtube:player_client=web_embedded",
 			format:       "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best",
 		}
 		// runYtdlpResolve already updates this profile's health from its own
@@ -464,6 +779,15 @@ var (
 	resolveFlight   = map[string]chan map[string]any{}
 )
 
+// Pair-hunt bookkeeping: one in-flight hunt per videoID, launched after a
+// grace period so it never delays the burst of user resolves that follows a
+// cache miss.
+var (
+	pairHuntMu   sync.Mutex
+	pairHunts    = map[string]bool{}
+	pairHuntWait = 20 * time.Second
+)
+
 // singleResolve runs fn once per videoID; concurrent callers wait for and
 // share its result.
 func singleResolve(videoID string, fn func() map[string]any) map[string]any {
@@ -486,37 +810,37 @@ func singleResolve(videoID string, fn func() map[string]any) map[string]any {
 	return res
 }
 
-// buildResolveAttempts returns the ordered list of yt-dlp invocations:
-// anonymous with yt-dlp's default client first (fast and reliably yields a
-// playable DASH pair), then anonymous cross-client fallbacks, then optionally
-// credentialed accounts (cookies + PO token) as a last resort if anonymous is
-// bot-blocked. Credentialed "web" playback only exposes combined formats and is
-// slower, so it's tried after the anonymous paths.
+// buildResolveAttempts returns the ordered list of yt-dlp invocations.
+// The android client comes first: it is the one client that reliably yields
+// a fetchable 360p combined URL, so the user-facing path resolves in one
+// call. The DASH-pair clients follow; their URLs are probe-verified in
+// runYtdlpResolve and only served while Google is actually serving them
+// (it rotates which client is live at any moment). Credentialed sessions
+// come last as a fallback for bot-blocked networks.
 func buildResolveAttempts() []ytResolveAttempt {
 	var attempts []ytResolveAttempt
 
-	// 1) Anonymous, yt-dlp default player client (fastest, best formats).
-	attempts = append(attempts, ytResolveAttempt{extractorArg: ""})
+	// 1) Anonymous android client: fetchable 360p combined (low mode).
+	attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=android"})
 
-	// 2) Anonymous cross-client fallbacks.
-	for _, client := range []string{"web_embedded", "tv"} {
+	// 2) Anonymous DASH-pair clients: 1080p for high mode when live.
+	for _, client := range []string{"web_embedded", "android_vr", "android_sdk", "android_creator", "web", "tv"} {
 		attempts = append(attempts, ytResolveAttempt{extractorArg: "youtube:player_client=" + client})
 	}
 
 	// Credentialed sessions: cookies are preferred because a cookies-only,
-	// default-client request returns a full 1080p DASH pair. A PO token is only
-	// added as a *last* resort (PO-token sessions are restricted to the 360p
-	// combined format by YouTube, so they use a lenient selector).
+	// web_embedded request can return a full 1080p DASH pair. A PO token is
+	// only added as a *last* resort (PO-token sessions are restricted to the
+	// 360p combined format by YouTube, so they use a lenient selector).
 	const credDashFormat = "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]/best"
 	const credLenientFormat = "best[height<=720]/best"
 
-	// 3) Credentialed accounts using cookies only (default player client).
-	//    This is what yields 1080p DASH for logged-in users.
+	// 3) Credentialed accounts using cookies only (web_embedded player client).
 	for _, p := range ytProfiles {
 		attempts = append(attempts, ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "",
+			extractorArg: "youtube:player_client=web_embedded",
 			format:       credDashFormat,
 		})
 	}
@@ -539,12 +863,13 @@ func buildResolveAttempts() []ytResolveAttempt {
 		})
 	}
 
-	// 5) Credentialed web without a PO token (in case the token expired).
+	// 5) Credentialed web_embedded without a PO token (in case the token
+	//    expired).
 	for _, p := range ytProfiles {
 		attempts = append(attempts, ytResolveAttempt{
 			profileLabel: p.label,
 			cookiesFile:  p.cookiesFile,
-			extractorArg: "youtube:player_client=web",
+			extractorArg: "youtube:player_client=web_embedded",
 			format:       credDashFormat,
 		})
 	}
@@ -661,11 +986,30 @@ func runYtdlpResolve(videoID string, attempt ytResolveAttempt) map[string]any {
 			}
 		}
 	}
-	if len(result) == 0 {
-		if attempt.profileLabel != "" {
-			recordCredResult(attempt.profileLabel, false, "no playable stream in yt-dlp output")
+	// YouTube periodically hands out playback URLs that are dead on arrival
+	// (403 from googlevideo) for certain player clients. Probe whatever we
+	// picked using the relay's own request style and discard anything that
+	// won't fetch, so the browser never receives a URL that can't play.
+	vURL, _ := result["video"].(string)
+	aURL, _ := result["audio"].(string)
+	if vURL != "" && aURL != "" {
+		if !streamURLProbeOk(vURL) || !streamURLProbeOk(aURL) {
+			delete(result, "video")
+			delete(result, "audio")
 		}
-		return nil
+	}
+	if u, _ := result["single"].(string); u != "" && !streamURLProbeOk(u) {
+		delete(result, "single")
+	}
+	if _, vOK := result["video"]; !vOK {
+		if _, sOK := result["single"]; !sOK {
+			// Nothing playable survived verification; metadata alone is not a
+			// usable resolve.
+			if attempt.profileLabel != "" {
+				recordCredResult(attempt.profileLabel, false, "no playable stream: resolved URLs failed verification (403)")
+			}
+			return nil
+		}
 	}
 	if attempt.profileLabel != "" {
 		recordCredResult(attempt.profileLabel, true, "")
@@ -673,41 +1017,118 @@ func runYtdlpResolve(videoID string, attempt ytResolveAttempt) map[string]any {
 	return result
 }
 
-// resolveVideoStreamInfo uses yt-dlp in simulate mode to fetch direct,
-// time-limited stream URLs for a video. Nothing is downloaded or stored.
-//
-// It prefers a 1080p H.264 video-only DASH stream paired with the best m4a
-// audio, which the client muxes via MediaSource. YouTube no longer offers
-// combined (video+audio) formats above 360p, so a "single" 360p URL is
-// returned as a fallback when no DASH pair is available.
+// resolveStreamsOnce resolves a video and caches the outcome. The android
+// fast path runs first so a playable 360p result comes back in one yt-dlp
+// call; only when that fails does the rest of the attempt chain run. A
+// background pair hunt (never blocking the caller) then tries the other
+// players for a fetchable 1080p DASH pair and upgrades the cache entry.
+func resolveStreamsOnce(videoID string) map[string]any {
+	streamResolveSem <- struct{}{}
+	defer func() { <-streamResolveSem }()
+
+	attempts := buildResolveAttempts()
+	var result map[string]any
+	for i, attempt := range attempts {
+		if result = runYtdlpResolve(videoID, attempt); result != nil {
+			if i == 0 {
+				// The android fast path won: hunt for a pair upgrade in the
+				// background. On every other path the user already waited, so
+				// the best playable result is served as-is.
+				go pairHuntForVideo(videoID)
+			}
+			break
+		}
+	}
+	if result == nil {
+		log.Printf("video %s: all yt-dlp resolution attempts returned no playable stream", videoID)
+		streamCachePutFailure(videoID)
+		return nil
+	}
+	streamCachePut(videoID, result)
+	return result
+}
+
+// pairHuntForVideo opportunistically tries the DASH-pair / credentialed
+// players to upgrade a cached single-only entry to a 1080p pair + single.
+// It waits out pairHuntWait so an immediate burst of user resolves goes
+// first, then only runs when the resolver slot is free — so it never queues
+// behind or ahead of user requests.
+func pairHuntForVideo(videoID string) {
+	pairHuntMu.Lock()
+	if pairHunts[videoID] {
+		pairHuntMu.Unlock()
+		return
+	}
+	pairHunts[videoID] = true
+	pairHuntMu.Unlock()
+	defer func() {
+		pairHuntMu.Lock()
+		delete(pairHunts, videoID)
+		pairHuntMu.Unlock()
+	}()
+
+	time.Sleep(pairHuntWait)
+	select {
+	case streamResolveSem <- struct{}{}:
+	default:
+		return // a resolve is running; the next play will re-hunt
+	}
+	defer func() { <-streamResolveSem }()
+
+	e, ok := streamCacheGet(videoID)
+	if !ok || e.Failed {
+		return
+	}
+	if _, hasPair := e.Info["video"].(string); hasPair {
+		return // the entry is already paired; its probes handle freshness
+	}
+	var best map[string]any
+	for _, attempt := range buildResolveAttempts()[1:] {
+		if res := runYtdlpResolve(videoID, attempt); res != nil {
+			best = res
+			if _, hasPair := res["video"]; hasPair {
+				break // found the 1080p pair; stop hunting
+			}
+		}
+	}
+	if best == nil {
+		return
+	}
+	if s, _ := e.Info["single"].(string); s != "" {
+		if _, hasSingle := best["single"]; !hasSingle {
+			best["single"] = s
+		}
+	}
+	streamCachePut(videoID, best)
+	if _, hasPair := best["video"]; hasPair {
+		log.Printf("video %s: background pair hunt upgraded to a DASH pair", videoID)
+	}
+}
+
 func resolveVideoStreamInfo(videoID string, fresh bool) map[string]any {
 	if !fresh {
 		if e, ok := streamCacheGet(videoID); ok {
 			if e.Failed {
 				return nil
 			}
-			return e.Info
+			// URLs go dead as YouTube rotates which player client gets
+			// served, so probe before serving. If a cached DASH pair died
+			// but the 360p single still plays, serve the single now and drop
+			// the entry so the next request re-resolves (and hunts) fresh.
+			if info, degraded, ok := streamInfoUsable(e.Info); ok {
+				if degraded {
+					streamCacheDelete(videoID)
+				}
+				return info
+			}
+			streamCacheDelete(videoID)
 		}
 	} else {
 		streamCacheDelete(videoID)
 	}
 
 	return singleResolve(videoID, func() map[string]any {
-		streamResolveSem <- struct{}{}
-		defer func() { <-streamResolveSem }()
-
-		var result map[string]any
-		for _, attempt := range buildResolveAttempts() {
-			if result = runYtdlpResolve(videoID, attempt); result != nil {
-				break
-			}
-		}
-		if result == nil {
-			streamCachePutFailure(videoID)
-		} else {
-			streamCachePut(videoID, result)
-		}
-		return result
+		return resolveStreamsOnce(videoID)
 	})
 }
 
