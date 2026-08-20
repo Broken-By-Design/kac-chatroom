@@ -191,6 +191,33 @@ func replaceCaseInsensitiveAll(s, word string) string {
 	return sb.String()
 }
 
+func censorMatchFull(word string) string {
+	runes := []rune(word)
+	return strings.Repeat(string(CENSOR_CHAR), len(runes))
+}
+
+// replaceCaseInsensitiveAllFull is identical to replaceCaseInsensitiveAll
+// but fully masks every character, including the first.
+func replaceCaseInsensitiveAllFull(s, word string) string {
+	lowerS := strings.ToLower(s)
+	lowerWord := strings.ToLower(word)
+	var sb strings.Builder
+	i := 0
+	for i < len(s) {
+		idx := strings.Index(lowerS[i:], lowerWord)
+		if idx < 0 {
+			sb.WriteString(s[i:])
+			break
+		}
+		idx += i
+		sb.WriteString(s[i:idx])
+		matched := s[idx : idx+len(word)]
+		sb.WriteString(censorMatchFull(matched))
+		i = idx + len(word)
+	}
+	return sb.String()
+}
+
 func censorMessage(message string, censorList []string, minSimilarity float64) string {
 	if censorList == nil {
 		censorList = CENSOR_WORDS
@@ -207,4 +234,39 @@ func censorMessage(message string, censorList []string, minSimilarity float64) s
 		}
 	}
 	return message
+}
+
+func CensorNames(message string, minSimilarity float64) string {
+	censorList := []string{
+		// first names
+		"Vance",
+		"James",
+		"Ryan",
+		"Levi",
+		"Deacon",
+		"Jakob",
+		"Aaron",
+		"Joey",
+		"Alex",
+		// last names
+		"Kennedy",
+		"Perry",
+		"Hebbeler",
+		"Archer",
+		"Rowe",
+		"Ramsey",
+		"Thomas",
+		"Habseiger",
+		"Hrabusicky",
+	}
+	words := findWords(message)
+	for _, censorWord := range censorList {
+		for _, originalWord := range words {
+			if isWordMatch(originalWord, censorWord, minSimilarity) {
+				message = replaceCaseInsensitiveAllFull(message, originalWord)
+			}
+		}
+	}
+	return message
+
 }

@@ -307,6 +307,9 @@ func handleChatMessage(s *socketio.Socket, data []any) {
 	if !ok {
 		return
 	}
+
+	didCensorName := false
+
 	message, _ := msg["message"].(string)
 	nickname := sessionOf(s).Nickname
 	timestamp, _ := msg["timestamp"].(string)
@@ -328,6 +331,11 @@ func handleChatMessage(s *socketio.Socket, data []any) {
 		s.Emit("system_message", map[string]any{"message": fmt.Sprintf("You are muted for %d seconds due to spamming.", duration)})
 		s.Emit("force_mute", map[string]any{})
 		return
+	}
+
+	message = CensorNames(message, 0.85)
+	if strings.Contains(message, "##") {
+		didCensorName = true
 	}
 
 	if state.isCensored(nickname) {
@@ -384,6 +392,10 @@ func handleChatMessage(s *socketio.Socket, data []any) {
 		} else {
 			parseCommand(message, nickname, timestamp)
 		}
+	}
+	if didCensorName {
+		s.Emit("system_message", map[string]any{"message": fmt.Sprintf("Do not send real names!!!!!")})
+
 	}
 }
 
